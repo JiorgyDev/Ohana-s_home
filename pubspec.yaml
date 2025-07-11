@@ -1,0 +1,39 @@
+name: ohanas_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.8.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  url_launcher: ^6.2.4
+  flutter_launcher_icons: ^0.14.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/like.png
+    - assets/icons/adopcion.png
+    - assets/icons/adopcion2.png
+    - assets/icons/adopcion3.png
+    - assets/icons/apoyar.png
+    - assets/icons/apoyar2.png
+    - assets/icons/escribiendo.png
+    - assets/icons/compartir.png
+    - assets/icons/compartir2.png
+    - assets/icons/mapache.jpg
+
+    # - assets/icons/kpop_heart.png  # <- Asegúrate de incluir también este si lo estás usando
