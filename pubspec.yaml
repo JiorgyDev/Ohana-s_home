@@ -9,23 +9,40 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  shared_preferences: ^2.2.2
   url_launcher: ^6.2.4
-  flutter_launcher_icons: ^0.14.4
+  share_plus: ^7.2.1     # ← AGREGAR ESTE
+  path_provider: ^2.1.1  # ← AGREGAR ESTE
+  http: ^1.2.2
+  cached_network_image: ^3.3.1
+  socket_io_client: ^2.0.3+1
+  intl: ^0.18.0
+
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.13.6
+
+  # google_translator: ^1.0.0
+  # shared_preferences: ^2.0.15
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-  
+  flutter_launcher_icons: ^0.14.4
+
 flutter_launcher_icons:
-  android: true
+  android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo.png"
+  image_path: "assets/images/logo3.png"
+  min_sdk_android: 21 
 
 flutter:
   uses-material-design: true
+
   assets:
     - assets/icons/like.png
+    - assets/icons/like2.png
+    - assets/icons/like7.png
     - assets/icons/adopcion.png
     - assets/icons/adopcion2.png
     - assets/icons/adopcion3.png
@@ -36,4 +53,13 @@ flutter:
     - assets/icons/compartir2.png
     - assets/icons/mapache.jpg
 
-    # - assets/icons/kpop_heart.png  # <- Asegúrate de incluir también este si lo estás usando
+  fonts:
+    - family: Quicksand
+      fonts:
+        - asset: assets/fonts/Quicksand-Regular.ttf
+        - asset: assets/fonts/Quicksand-Light.ttf
+        - asset: assets/fonts/Quicksand-Bold.ttf
+        - asset: assets/fonts/Quicksand-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Quicksand-Bold.ttf
+          weight: 700

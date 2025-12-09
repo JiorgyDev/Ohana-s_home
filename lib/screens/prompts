@@ -1,0 +1,10 @@
+Tengo una app Flutter con sistema de traducción usando TranslatedText widget que reemplaza Text(). 
+
+Actualiza esta pantalla cambiando todos los Text() por TranslatedText(), excepto nombres propios y números:
+
+Mantén estilos y estructura. Agrega import '../widgets/translated_text.dart';
+
+
+
+contra google
+gbpw ojot mkxq hmdy

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:ohanas_app/screens/homePage.dart';
+import '../services/auth_service.dart';
+import '../services/api_services.dart';
 
 class OhanasHome extends StatelessWidget {
   const OhanasHome({super.key});
@@ -24,6 +26,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
   final _celularController = TextEditingController();
   final _fechaNacimientoController = TextEditingController();
   final _correoController = TextEditingController();
+  final _passwordController = TextEditingController(); // ← NUEVA LÍNEA
   String _codigoPais = '+591 🇧🇴'; // Bolivia por defecto
   String _paisSeleccionado = 'Bolivia';
 
@@ -216,8 +219,10 @@ class _OhanasLoginState extends State<OhanasLogin> {
     'Zambia': '+260 🇿🇲',
     'Zimbabue': '+263 🇿🇼',
   };
+
   String _generoSeleccionado = '';
   bool _aceptaTerminos = false;
+  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -240,13 +245,13 @@ class _OhanasLoginState extends State<OhanasLogin> {
                       width: 80,
                       height: 80,
                       decoration: BoxDecoration(
-                        color: Colors.orange[100],
+                        color: Color(0xFFFFFC98).withOpacity(0.3),
                         borderRadius: BorderRadius.circular(40),
                       ),
                       child: Icon(
                         Icons.pets,
                         size: 40,
-                        color: Colors.orange[600],
+                        color: Color(0xFFFE8043),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -256,7 +261,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
-                        color: Colors.orange[600],
+                        color: Color(0xFFB42C1C),
                       ),
                     ),
                   ],
@@ -316,6 +321,15 @@ class _OhanasLoginState extends State<OhanasLogin> {
               ),
 
               const SizedBox(height: 16),
+              _buildTextField(
+                // ← AGREGAR DESDE AQUÍ
+                controller: _passwordController,
+                label: 'Contraseña',
+                icon: Icons.lock,
+                obscureText: true,
+              ),
+
+              const SizedBox(height: 16),
 
               _buildDropdown(
                 value: _generoSeleccionado,
@@ -341,7 +355,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
                         _aceptaTerminos = value ?? false;
                       });
                     },
-                    activeColor: Colors.orange[600],
+                    activeColor: Color(0xFFB42C1C),
                   ),
                   Expanded(
                     child: GestureDetector(
@@ -365,21 +379,11 @@ class _OhanasLoginState extends State<OhanasLogin> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _aceptaTerminos
-                      ? () {
-                          if (_formKey.currentState!.validate()) {
-                            // Navegar a la siguiente pantalla
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const homepage(),
-                              ),
-                            );
-                          }
-                        }
+                  onPressed: (_aceptaTerminos && !_isLoading)
+                      ? _handleRegistro
                       : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange[600],
+                    backgroundColor: Color(0xFFFE8043),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
@@ -387,10 +391,22 @@ class _OhanasLoginState extends State<OhanasLogin> {
                     ),
                     elevation: 2,
                   ),
-                  child: const Text(
-                    'Registrarme',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  child: _isLoading
+                      ? SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          'Registrarme',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
 
@@ -454,7 +470,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
               Icons.arrow_drop_down,
               size: 16,
             ), // Icono más pequeño
-            style: TextStyle(color: Colors.orange[600], fontSize: 13),
+            style: TextStyle(color: Color(0xFFFE8043), fontSize: 13),
             isExpanded: true, // Para que el texto se ajuste mejor
           ),
         ),
@@ -465,7 +481,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
             keyboardType: TextInputType.phone,
             decoration: InputDecoration(
               labelText: 'Número Celular',
-              prefixIcon: Icon(Icons.phone, color: Colors.orange[600]),
+              prefixIcon: Icon(Icons.phone, color: Color(0xFFFE8043)),
               border: const OutlineInputBorder(
                 borderRadius: BorderRadius.only(
                   topRight: Radius.circular(12),
@@ -484,7 +500,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
                   topRight: Radius.circular(12),
                   bottomRight: Radius.circular(12),
                 ),
-                borderSide: BorderSide(color: Colors.orange[600]!),
+                borderSide: BorderSide(color: Color(0xFFFE8043)),
               ),
               filled: true,
               fillColor: Colors.white,
@@ -507,16 +523,18 @@ class _OhanasLoginState extends State<OhanasLogin> {
     required IconData icon,
     TextInputType? keyboardType,
     bool readOnly = false,
+    bool obscureText = false, // ← NUEVA LÍNEA
     VoidCallback? onTap,
   }) {
     return TextFormField(
       controller: controller,
       keyboardType: keyboardType,
       readOnly: readOnly,
+      obscureText: obscureText,
       onTap: onTap,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: Colors.orange[600]),
+        prefixIcon: Icon(icon, color: Color(0xFFFE8043)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -527,7 +545,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.orange[600]!),
+          borderSide: BorderSide(color: Color(0xFFFE8043)),
         ),
         filled: true,
         fillColor: Colors.white,
@@ -552,7 +570,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
       value: value.isEmpty ? null : value,
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: Icon(icon, color: Colors.orange[600]),
+        prefixIcon: Icon(icon, color: Color(0xFFFE8043)),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey[300]!),
@@ -563,7 +581,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.orange[600]!),
+          borderSide: BorderSide(color: Color(0xFFFE8043)),
         ),
         filled: true,
         fillColor: Colors.white,
@@ -581,6 +599,72 @@ class _OhanasLoginState extends State<OhanasLogin> {
     );
   }
 
+  Future<void> _handleRegistro() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // Llamar al backend real
+      final result = await ApiService().register(
+        name: _nombreController.text,
+        email: _correoController.text,
+        password: _passwordController.text,
+        phone: '$_codigoPais ${_celularController.text}',
+      );
+
+      if (result['success']) {
+        // Guardar sesión con el token del servidor
+        await AuthService().login(
+          username: _apellidosController.text,
+          email: _correoController.text,
+          userId: result['user']['_id'],
+          token: result['token'],
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('¡Cuenta creada exitosamente!'),
+              backgroundColor: Color(0xFFFE8043),
+            ),
+          );
+
+          Navigator.of(context).pushReplacementNamed('/home');
+        }
+      } else {
+        // Mostrar error del servidor
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'Error al registrar'),
+              backgroundColor: Color(0xFFB42C1C),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error de conexión: $e'),
+            backgroundColor: Color(0xFFB42C1C),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _nombreController.dispose();
@@ -588,6 +672,7 @@ class _OhanasLoginState extends State<OhanasLogin> {
     _celularController.dispose();
     _fechaNacimientoController.dispose();
     _correoController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 }
