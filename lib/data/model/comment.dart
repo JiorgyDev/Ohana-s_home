@@ -45,4 +45,17 @@ class Comment {
   String toString() {
     return 'Comment(id: $id, username: $username, content: $content)';
   }
+
+  // Convertir Comment a JSON completo (para caché)
+  Map<String, dynamic> toJsonFull() {
+    return {
+      '_id': id,
+      'petId': petId,
+      'userId': userId,
+      'username': username,
+      'content': content,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt.toIso8601String(),
+    };
+  }
 }

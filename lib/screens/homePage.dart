@@ -1,24 +1,22 @@
 import 'dart:io';
-import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../widgets/language_selection_screen.dart';
-import '../widgets/translated_text.dart';
-import '../services/translation_service.dart';
-import '../data/model/comment.dart';
-import '../services/comment_services.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:ohanas_app/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:ohanas_app/services/auth_service.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../data/model/comment.dart';
+import '../data/model/conversation.dart';
+import '../services/comment_services.dart';
 import '../services/messaging_service.dart';
 import '../services/socket_service.dart';
-import '../data/model/conversation.dart';
-import 'user_search_screen.dart';
+import '../services/translation_service.dart';
+import '../widgets/language_selection_screen.dart';
+import '../widgets/translated_text.dart';
 import 'chat_screen.dart';
-// import '../services/auth_service.dart';
+import 'user_search_screen.dart';
 
 // ============================================
 // SERVICIO PARA CONECTAR CON EL API
@@ -334,6 +332,7 @@ class PhotoPostWidget extends StatefulWidget {
 class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   late bool _isLiked;
   late int _likesCount;
+  late int _commentsCount;
   late PageController _imagePageController;
   int _currentImageIndex = 0;
   bool _isDescriptionExpanded = false;
@@ -347,6 +346,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     super.initState();
     _isLiked = widget.post.isLiked;
     _likesCount = widget.post.likes;
+    _commentsCount = widget.post.comments;
     _imagePageController = PageController();
     _loadDescription(); // ← AÑADIR ESTA LÍNEA
   }
@@ -551,7 +551,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   fit: BoxFit.contain,
                   color: Colors.white,
                 ),
-                label: _formatNumber(widget.post.comments),
+                label: _formatNumber(_commentsCount),
                 onTap: () => _showComments(context, widget.post.id),
               ),
               SizedBox(height: 10),
@@ -604,9 +604,6 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   onTap: () {
                     setState(() {
                       _isDescriptionExpanded = !_isDescriptionExpanded;
-                      print(
-                        'Estado cambiado: $_isDescriptionExpanded',
-                      ); // ← AÑADIR ESTO
                     });
                   },
                   child: Padding(
@@ -679,18 +676,18 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   }
 
   void _showComments(BuildContext context, String petId) {
-    // Cargar comentarios al abrir el modal
-    // _loadComments(petId);
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.grey[900],
-      isScrollControlled: true, // Para que el teclado no tape el modal
+      isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (BuildContext context, StateSetter setModalState) {
-          if (_comments.isEmpty && !_loadingComments) {
-            _loadComments(petId);
-          }
+          // Cargar comentarios solo una vez
+          Future.microtask(() {
+            if (_comments.isEmpty && !_loadingComments) {
+              _loadComments(petId);
+            }
+          });
           return Container(
             padding: EdgeInsets.only(
               top: 16,
@@ -813,6 +810,8 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   // FUNCIÓN PARA CARGAR COMENTARIOS
   // ============================================
   Future<void> _loadComments(String petId) async {
+    if (_loadingComments) return; // ← Evitar cargas duplicadas
+
     setState(() {
       _loadingComments = true;
     });
@@ -820,28 +819,24 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     try {
       final comments = await CommentService()
           .getCommentsByPet(petId)
-          .timeout(Duration(seconds: 5));
+          .timeout(
+            Duration(seconds: 3), // ← Reducir a 3 segundos
+            onTimeout: () => <Comment>[], // ← Retornar lista vacía en timeout
+          );
 
-      setState(() {
-        _comments = comments;
-        _loadingComments = false;
-      });
+      if (mounted) {
+        setState(() {
+          _comments = comments;
+          _loadingComments = false;
+        });
+      }
     } catch (e) {
       print('Error cargando comentarios: $e');
-      setState(() {
-        _loadingComments = false;
-        // Mostrar comentarios vacíos si falla
-      });
-
-      // Mostrar mensaje de error
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('No se pudieron cargar los comentarios'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 2),
-          ),
-        );
+        setState(() {
+          _comments = []; // ← Asegurar que quede vacío
+          _loadingComments = false;
+        });
       }
     }
   }
@@ -875,9 +870,14 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
         // Recargar comentarios
         await _loadComments(petId);
 
-        // Actualizar AMBOS estados (modal Y widget principal)
+        // ✅ INCREMENTAR CONTADOR DE COMENTARIOS
+        setState(() {
+          _commentsCount++;
+          widget.post.comments = _commentsCount; // Actualizar el post también
+        });
+
+        // Actualizar modal
         setModalState(() {});
-        setState(() {}); // ← AGREGAR ESTA LÍNEA
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2011,54 +2011,50 @@ class SuscScreen extends StatelessWidget {
 
             // Descripción principal
             TranslatedText(
-              '¡Haz la diferencia HOY!\n'
-              'Con tu apoyo mensual, ayudas inmediatamente a quien más lo necesita. '
-              'Cada contribución se destina directamente a alimento, refugio y cuidados veterinarios.',
-              textAlign: TextAlign.center,
+              'Susucribete y "Cada mes, recibirás una tarjeta virtual con el rostro de quien ayudaste: un perrito que ahora tiene alimento, un gatito con un refugio cálido, o una persona que recuperó esperanza. No es solo un recuerdo... es la prueba de que tu suscripción silenciosa cambia vidas. ¿Quieres ser parte de esta cadena de amor?"',
+              textAlign: TextAlign.justify,
               style: TextStyle(fontSize: 15, height: 1.5),
             ),
-            const SizedBox(height: 24),
 
-            // Impacto inmediato
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF7C4C48), Color(0xFF2A1617)],
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Column(
-                children: [
-                  TranslatedText(
-                    '🌟 TU IMPACTO INMEDIATO',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildImpact(
-                    'Con \$2 USD',
-                    'Alimentas a un perrito por 1 día',
-                  ),
-                  _buildImpact('Con \$5 USD', 'Cubres vacunas básicas'),
-                  _buildImpact('Con \$10 USD', 'Provees refugio por 1 semana'),
-                  _buildImpact(
-                    'Con \$15 USD',
-                    'Atiendes una emergencia veterinaria menor',
-                  ),
-                  _buildImpact(
-                    'Con \$30 USD',
-                    'Rescatas y cuidas a un animal por 1 mes',
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
+            // // Impacto inmediato
+            // Container(
+            //   padding: const EdgeInsets.all(16),
+            //   decoration: BoxDecoration(
+            //     gradient: LinearGradient(
+            //       colors: [Color(0xFF7C4C48), Color(0xFF2A1617)],
+            //     ),
+            //     borderRadius: BorderRadius.circular(16),
+            //   ),
+            //   child: Column(
+            //     children: [
+            //       TranslatedText(
+            //         '🌟 TU IMPACTO INMEDIATO',
+            //         style: TextStyle(
+            //           color: Colors.white,
+            //           fontWeight: FontWeight.bold,
+            //           fontSize: 16,
+            //         ),
+            //       ),
+            //       const SizedBox(height: 16),
+            //       _buildImpact(
+            //         'Con \$2 USD',
+            //         'Alimentas a un perrito por 1 día',
+            //       ),
+            //       _buildImpact('Con \$5 USD', 'Cubres vacunas básicas'),
+            //       _buildImpact('Con \$10 USD', 'Provees refugio por 1 semana'),
+            //       _buildImpact(
+            //         'Con \$15 USD',
+            //         'Atiendes una emergencia veterinaria menor',
+            //       ),
+            //       _buildImpact(
+            //         'Con \$30 USD',
+            //         'Rescatas y cuidas a un animal por 1 mes',
+            //       ),
+            //     ],
+            //   ),
+            // ),
+            // const SizedBox(height: 24),
 
-            // Qué recibes
             // Container(
             //   padding: const EdgeInsets.all(16),
             //   decoration: BoxDecoration(
@@ -2109,186 +2105,174 @@ class SuscScreen extends StatelessWidget {
 
             // Opciones de contribución
             _buildContributionCard(
-              amount: '2',
-              title: 'Apoyo Básico',
-              description: 'Alimenta a un peludito',
+              amount: '5',
+              title: 'Granito de arena',
+              description: 'Alimenta a un peludito por 1 dia',
               icon: Icons.restaurant,
               color: Color(0xFF9C27B0),
             ),
-
-            _buildContributionCard(
-              amount: '5',
-              title: 'Apoyo Solidario',
-              description: 'Vacunas y cuidado preventivo',
-              icon: Icons.healing,
-              color: Color(0xFF2196F3),
-            ),
-
             _buildContributionCard(
               amount: '10',
-              title: 'Apoyo Generoso',
-              description: 'Refugio seguro por una semana',
-              icon: Icons.home,
-              color: Color(0xFF4CAF50),
-              // isRecommended: true,
+              title: 'Luz de esperanza',
+              description: 'Alimenta a un peludito por 2 dia',
+              icon: Icons.restaurant,
+              color: Color(0xFF9C27B0),
             ),
-
             _buildContributionCard(
-              amount: '15',
-              title: 'Apoyo Heroico',
-              description: 'Atención veterinaria de emergencia',
-              icon: Icons.medical_services,
-              color: Color(0xFFFF9800),
+              amount: '60',
+              title: 'Angel de la guarda',
+              description: 'Alimenta a un peludito por 12 dia',
+              icon: Icons.restaurant,
+              color: Color(0xFF9C27B0),
             ),
-
             _buildContributionCard(
-              amount: '30',
-              title: 'Apoyo Ángel',
-              description: 'Rescate y cuidado completo',
-              icon: Icons.volunteer_activism,
-              color: Color(0xFFB42C1C),
+              amount: '150',
+              title: 'Corazon dorado',
+              description: 'Alimenta a un peludito por 30 dia',
+              icon: Icons.restaurant,
+              color: Color(0xFF9C27B0),
             ),
 
             const SizedBox(height: 24),
 
             // Otro monto
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border.all(color: Color(0xFFFE8043), width: 2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  TranslatedText(
-                    '💝 ¿Otro monto?',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      prefixText: '\$ ',
-                      suffixText: 'USD',
-                      hintText: TranslationService().currentLanguage == 'en'
-                          ? 'Enter your amount'
-                          : 'Ingresa tu monto',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                        borderSide: BorderSide(
-                          color: Color(0xFFFE8043),
-                          width: 2,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {},
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFFFE8043),
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: TranslatedText(
-                        'Contribuir Ahora',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Container(
+            //   padding: EdgeInsets.all(16),
+            //   decoration: BoxDecoration(
+            //     border: Border.all(color: Color(0xFFFE8043), width: 2),
+            //     borderRadius: BorderRadius.circular(12),
+            //   ),
+            //   child: Column(
+            //     children: [
+            //       TranslatedText(
+            //         '💝 ¿Otro monto?',
+            //         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            //       ),
+            //       const SizedBox(height: 12),
+            //       TextField(
+            //         keyboardType: TextInputType.number,
+            //         decoration: InputDecoration(
+            //           prefixText: '\$ ',
+            //           suffixText: 'USD',
+            //           hintText: TranslationService().currentLanguage == 'en'
+            //               ? 'Enter your amount'
+            //               : 'Ingresa tu monto',
+            //           border: OutlineInputBorder(
+            //             borderRadius: BorderRadius.circular(8),
+            //           ),
+            //           focusedBorder: OutlineInputBorder(
+            //             borderRadius: BorderRadius.circular(8),
+            //             borderSide: BorderSide(
+            //               color: Color(0xFFFE8043),
+            //               width: 2,
+            //             ),
+            //           ),
+            //         ),
+            //       ),
+            //       const SizedBox(height: 12),
+            //       SizedBox(
+            //         width: double.infinity,
+            //         child: ElevatedButton(
+            //           onPressed: () {},
+            //           style: ElevatedButton.styleFrom(
+            //             backgroundColor: Color(0xFFFE8043),
+            //             foregroundColor: Colors.white,
+            //             padding: EdgeInsets.symmetric(vertical: 16),
+            //             shape: RoundedRectangleBorder(
+            //               borderRadius: BorderRadius.circular(12),
+            //             ),
+            //           ),
+            //           child: TranslatedText(
+            //             'Contribuir Ahora',
+            //             style: TextStyle(
+            //               fontSize: 16,
+            //               fontWeight: FontWeight.bold,
+            //             ),
+            //           ),
+            //         ),
+            //       ),
+            //     ],
+            //   ),
+            // ),
 
-            const SizedBox(height: 24),
+            // const SizedBox(height: 24),
 
             // Testimonio visual
-            Container(
-              padding: EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Color(0xFFF5F5F5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  TranslatedText(
-                    '💬 Historia de impacto',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 12),
-                  Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(
-                          'assets/icons/mapache.jpg',
-                          width: double.infinity,
-                          height: 200,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 10,
-                        left: 10,
-                        right: 10,
-                        child: Container(
-                          padding: EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.7),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: TranslatedText(
-                            '"Gracias a tu apoyo, Max comió hoy y tiene un hogar temporal seguro"',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            // Container(
+            //   padding: EdgeInsets.all(16),
+            //   decoration: BoxDecoration(
+            //     color: Color(0xFFF5F5F5),
+            //     borderRadius: BorderRadius.circular(12),
+            //   ),
+            //   child: Column(
+            //     children: [
+            //       TranslatedText(
+            //         '💬 Historia de impacto',
+            //         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            //       ),
+            //       const SizedBox(height: 12),
+            //       Stack(
+            //         children: [
+            //           ClipRRect(
+            //             borderRadius: BorderRadius.circular(12),
+            //             child: Image.asset(
+            //               'assets/icons/mapache.jpg',
+            //               width: double.infinity,
+            //               height: 200,
+            //               fit: BoxFit.cover,
+            //             ),
+            //           ),
+            //           Positioned(
+            //             bottom: 10,
+            //             left: 10,
+            //             right: 10,
+            //             child: Container(
+            //               padding: EdgeInsets.all(12),
+            //               decoration: BoxDecoration(
+            //                 color: Colors.black.withOpacity(0.7),
+            //                 borderRadius: BorderRadius.circular(8),
+            //               ),
+            //               child: TranslatedText(
+            //                 '"Gracias a tu apoyo, Max comió hoy y tiene un hogar temporal seguro"',
+            //                 textAlign: TextAlign.center,
+            //                 style: TextStyle(
+            //                   color: Colors.white,
+            //                   fontSize: 13,
+            //                   fontStyle: FontStyle.italic,
+            //                 ),
+            //               ),
+            //             ),
+            //           ),
+            //         ],
+            //       ),
+            //     ],
+            //   ),
+            // ),
 
-            const SizedBox(height: 24),
+            // const SizedBox(height: 24),
 
             // Nota de transparencia
-            Container(
-              padding: EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.verified, color: Color(0xFF4CAF50), size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TranslatedText(
-                      '100% de tu donación va directamente a ayudar',
-                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Container(
+            //   padding: EdgeInsets.all(12),
+            //   decoration: BoxDecoration(
+            //     border: Border.all(color: Colors.grey.shade300),
+            //     borderRadius: BorderRadius.circular(8),
+            //   ),
+            //   child: Row(
+            //     children: [
+            //       Icon(Icons.verified, color: Color(0xFF4CAF50), size: 20),
+            //       const SizedBox(width: 8),
+            //       Expanded(
+            //         child: TranslatedText(
+            //           '100% de tu donación va directamente a ayudar',
+            //           style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            //         ),
+            //       ),
+            //     ],
+            //   ),
+            // ),
 
-            const SizedBox(height: 20),
+            // const SizedBox(height: 20),
           ],
         ),
       ),
@@ -4091,7 +4075,7 @@ class PhotoPost {
   int adopcion;
   int apoyo;
   int likes;
-  final int comments;
+  int comments;
   final int shares;
   bool isLiked;
 

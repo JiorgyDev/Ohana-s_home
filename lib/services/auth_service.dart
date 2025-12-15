@@ -1,3 +1,4 @@
+//auth_service.dart
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -108,7 +109,7 @@ class AuthService {
     String? name,
     String? email,
     String? phone,
-    String? description,
+    String? bio,
   }) async {
     try {
       // VALIDAR que tengamos userId
@@ -117,10 +118,8 @@ class AuthService {
       }
 
       final response = await http
-          .put(
-            Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/users/$_userId',
-            ),
+          .patch(
+            Uri.parse('https://wooheartc-back.onrender.com/api/v1/users/me'),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $_token',
@@ -129,7 +128,7 @@ class AuthService {
               if (name != null) 'name': name,
               if (email != null) 'email': email,
               if (phone != null) 'phone': phone,
-              if (description != null) 'description': description,
+              if (bio != null) 'bio': bio,
             }),
           )
           .timeout(Duration(seconds: 10));

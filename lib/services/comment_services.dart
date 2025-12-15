@@ -25,27 +25,24 @@ class CommentService {
   /// ============================================
   Future<List<Comment>> getCommentsByPet(String petId) async {
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/comments/pet/$petId'),
-        headers: {'Content-Type': 'application/json'}, // No requiere auth
-      );
-
-      print('📥 Response status: ${response.statusCode}');
-      print('📥 Response body: ${response.body}');
+      final response = await http
+          .get(
+            Uri.parse('$baseUrl/comments/pet/$petId'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(
+            Duration(seconds: 3),
+            onTimeout: () => http.Response('{"data":[]}', 200),
+          );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-
-        // El backend responde con { success: true, count: X, data: [...] }
         final commentsJson = data['data'] as List;
-
         return commentsJson.map((json) => Comment.fromJson(json)).toList();
-      } else {
-        print('❌ Error: ${response.body}');
-        return [];
       }
+      return [];
     } catch (e) {
-      print('❌ Error al obtener comentarios: $e');
+      print('Error cargando comentarios: $e');
       return [];
     }
   }
@@ -58,7 +55,6 @@ class CommentService {
     required String content,
   }) async {
     try {
-      // Validar que hay token
       if (AuthService().token == null) {
         return {
           'success': false,
@@ -66,14 +62,13 @@ class CommentService {
         };
       }
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/comments'),
-        headers: _getAuthHeaders(), // Requiere autenticación
-        body: json.encode({'petId': petId, 'content': content}),
-      );
-
-      print('📤 Create comment status: ${response.statusCode}');
-      print('📤 Create comment body: ${response.body}');
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/comments'),
+            headers: _getAuthHeaders(),
+            body: json.encode({'petId': petId, 'content': content}),
+          )
+          .timeout(Duration(seconds: 5));
 
       final data = json.decode(response.body);
 
@@ -90,13 +85,12 @@ class CommentService {
         };
       }
     } catch (e) {
-      print('❌ Error al crear comentario: $e');
-      return {'success': false, 'message': 'Error de conexión: $e'};
+      return {'success': false, 'message': 'Error de conexión'};
     }
   }
 
   /// ============================================
-  /// ELIMINAR un comentario (BONUS)
+  /// ELIMINAR un comentario
   /// ============================================
   Future<Map<String, dynamic>> deleteComment(String commentId) async {
     try {
@@ -104,10 +98,12 @@ class CommentService {
         return {'success': false, 'message': 'Debes iniciar sesión'};
       }
 
-      final response = await http.delete(
-        Uri.parse('$baseUrl/comments/$commentId'),
-        headers: _getAuthHeaders(),
-      );
+      final response = await http
+          .delete(
+            Uri.parse('$baseUrl/comments/$commentId'),
+            headers: _getAuthHeaders(),
+          )
+          .timeout(Duration(seconds: 5));
 
       final data = json.decode(response.body);
 
@@ -116,11 +112,11 @@ class CommentService {
       } else {
         return {
           'success': false,
-          'message': data['message'] ?? 'Error al eliminar comentario',
+          'message': data['message'] ?? 'Error al eliminar',
         };
       }
     } catch (e) {
-      return {'success': false, 'message': 'Error de conexión: $e'};
+      return {'success': false, 'message': 'Error de conexión'};
     }
   }
 }
