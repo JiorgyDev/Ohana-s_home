@@ -1,4 +1,4 @@
-//api_services.dart
+// lib/services/api_service.dart
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
@@ -123,6 +123,48 @@ class ApiService {
         return data['data']['users'] ?? [];
       } else {
         throw Exception('Error al buscar usuarios');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión: $e');
+    }
+  }
+
+  /// Obtener historial de pagos del usuario autenticado
+  Future<Map<String, dynamic>> getPaymentHistory() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/payments/history'),
+        headers: _getAuthHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {'success': true, 'data': data['data']};
+      } else {
+        final data = json.decode(response.body);
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Error al obtener historial',
+        };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Error de conexión: $e'};
+    }
+  }
+
+  /// Obtener estadísticas de pagos
+  Future<Map<String, dynamic>> getPaymentStats() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/payments/stats'),
+        headers: _getAuthHeaders(),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {'success': true, 'stats': data['data']};
+      } else {
+        throw Exception('Error al obtener estadísticas');
       }
     } catch (e) {
       throw Exception('Error de conexión: $e');

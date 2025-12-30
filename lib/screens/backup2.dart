@@ -16,6 +16,8 @@ import '../services/messaging_service.dart';
 import '../services/socket_service.dart';
 import '../services/translation_service.dart';
 import '../services/payment_service.dart';
+import '../data/model/payment_history_service.dart'; // ← NUEVO
+import '../data/model/payment_models.dart'; // ← NUEVO
 import '../config/stripe_config.dart';
 import '../widgets/language_selection_screen.dart';
 import '../widgets/translated_text.dart';
@@ -2514,12 +2516,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _username = 'Usuario';
   String _email = '';
   int _likesCount = 0;
+  // ✅ NUEVAS VARIABLES PARA MANEJAR LOS DATOS DE PAGOS
+  PaymentHistoryData? _paymentHistory; // ← Almacena todos los datos
+  bool _isLoadingPayments = false; // ← Control de carga
+  String? _paymentError; // ← Mensajes de error
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _loadLikesCount();
+    _loadPaymentHistory();
   }
 
   @override
@@ -2551,12 +2558,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _loadPaymentHistory() async {
+    setState(() {
+      _isLoadingPayments = true;
+      _paymentError = null;
+    });
+
+    try {
+      final result = await PaymentHistoryService().getPaymentHistory();
+
+      if (result['success']) {
+        setState(() {
+          _paymentHistory = result['data'] as PaymentHistoryData?;
+          _isLoadingPayments = false;
+        });
+      } else {
+        setState(() {
+          _paymentError = result['message'];
+          _isLoadingPayments = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _paymentError = 'Error al cargar historial';
+        _isLoadingPayments = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: () async {
           await _loadLikesCount();
+          await _loadPaymentHistory();
         },
         child: Column(
           children: [
@@ -2633,6 +2669,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: 'Apoyo',
                   ),
                   _buildCategoryButton(
+                    index: 2, // ← NUEVO
+                    icon: Icons.star, // ← NUEVO
+                    label: 'Suscripción', // ← NUEVO
+                  ),
+                  _buildCategoryButton(
                     index: 4,
                     icon: Icons.thumb_up,
                     label: 'Likes',
@@ -2640,99 +2681,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
             ),
-
-            // Grid de posts del usuario
             Expanded(
-              child: _selectedTab == 4
-                  ? FutureBuilder<List<PetModel>>(
-                      future: PetService.fetchPets(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFFE8043),
-                            ),
-                          );
-                        }
-
-                        if (!snapshot.hasData) {
-                          return Center(
-                            child: TranslatedText('No hay posts disponibles'),
-                          );
-                        }
-
-                        final likedPosts = snapshot.data!
-                            .where((post) => post.isLiked) // ✅ CAMBIO
-                            .toList();
-
-                        if (likedPosts.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.favorite_border,
-                                  size: 60,
-                                  color: Colors.grey,
-                                ),
-                                SizedBox(height: 16),
-                                TranslatedText('Aún no tienes posts favoritos'),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return GridView.builder(
-                          padding: EdgeInsets.all(2),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 2,
-                                mainAxisSpacing: 2,
-                              ),
-                          itemCount: likedPosts.length,
-                          itemBuilder: (context, index) {
-                            return Image.network(
-                              likedPosts[index].imageUrls[0], // ✅ CAMBIO
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[800],
-                                  child: Icon(Icons.error, color: Colors.white),
-                                );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    )
-                  : GridView.builder(
-                      padding: EdgeInsets.all(2),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 2,
-                        mainAxisSpacing: 2,
-                      ),
-                      itemCount: _getItemCount(),
-                      itemBuilder: (context, index) {
-                        return Container(
-                          color: Colors.grey[800],
-                          child: Center(
-                            child: Icon(
-                              Icons.image,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+              child: _buildTabContent(), // ← Método que decide qué mostrar
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildTabContent() {
+    switch (_selectedTab) {
+      case 0: // Adoptados
+        return _buildAdoptedPetsTab(); // ← Widget con adopciones
+      case 1: // Apoyo
+        return _buildDonationsTab(); // ← Widget con donaciones
+      case 2: // Suscripción
+        return _buildSubscriptionTab(); // ← Widget con suscripción
+      case 4: // Likes
+        return _buildLikesTab(); // ← Widget con likes (tu código actual)
+      default:
+        return Center(child: Text('Pestaña no implementada'));
+    }
   }
 
   Widget _buildCategoryButton({
@@ -2812,6 +2782,524 @@ class _ProfileScreenState extends State<ProfileScreen> {
           style: TextStyle(color: Colors.grey, fontSize: 14),
         ),
       ],
+    );
+  }
+
+  Widget _buildAdoptedPetsTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar adopciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final adoptions = _paymentHistory?.adoptions ?? [];
+
+    if (adoptions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.pets, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Aún no has adoptado ninguna mascota',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Toca el botón Suscribir para empezar',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: adoptions.length,
+      itemBuilder: (context, index) {
+        final adoption = adoptions[index];
+        return Card(
+          margin: EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 2,
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFFFE8043).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.favorite,
+                        color: Color(0xFFFE8043),
+                        size: 24,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            adoption.planName,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            adoption.formattedAmount,
+                            style: TextStyle(
+                              color: Color(0xFFFE8043),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: adoption.isActive
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        adoption.statusText,
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12),
+                Divider(),
+                SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TranslatedText(
+                          'Mascota',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          adoption.petName ?? 'N/A',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        TranslatedText(
+                          'Desde',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          adoption.formattedStartDate,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                if (adoption.isActive && adoption.nextPayment != null) ...[
+                  SizedBox(height: 12),
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 16,
+                          color: Colors.blue,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Próximo pago: ${adoption.formattedNextPayment}',
+                          style: TextStyle(fontSize: 12, color: Colors.blue),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDonationsTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar donaciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final donations = _paymentHistory?.donations ?? [];
+
+    if (donations.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.volunteer_activism, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Aún no has realizado donaciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Tu apoyo hace la diferencia',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: donations.length,
+      itemBuilder: (context, index) {
+        final donation = donations[index];
+        return Card(
+          margin: EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 1,
+          child: ListTile(
+            contentPadding: EdgeInsets.all(16),
+            leading: Container(
+              padding: EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Color(0xFFFE8043).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.favorite, color: Color(0xFFFE8043), size: 24),
+            ),
+            title: Text(
+              donation.formattedAmount,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFE8043),
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: 4),
+                Text(donation.formattedDate, style: TextStyle(fontSize: 12)),
+                SizedBox(height: 4),
+                Text(donation.statusText, style: TextStyle(fontSize: 11)),
+              ],
+            ),
+            trailing: Icon(
+              Icons.check_circle,
+              color: donation.status == 'succeeded'
+                  ? Colors.green
+                  : Colors.grey,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubscriptionTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar suscripción',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final subscription = _paymentHistory?.generalSubscription;
+
+    if (subscription == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.star_outline, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'No tienes una suscripción activa',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Suscríbete para apoyar mensualmente',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFFE8043), Color(0xFFFE8043).withOpacity(0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star, color: Colors.white, size: 48),
+                SizedBox(height: 16),
+                TranslatedText(
+                  'Plan Activo',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  subscription.planName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  subscription.formattedAmount,
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+                SizedBox(height: 24),
+                Divider(color: Colors.white.withOpacity(0.3)),
+                SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Desde',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedStartDate,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Próximo cargo',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedNextPayment,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: subscription.isActive
+                        ? Colors.white.withOpacity(0.2)
+                        : Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    subscription.statusText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLikesTab() {
+    return FutureBuilder<List<PetModel>>(
+      future: PetService.fetchPets(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(
+            child: CircularProgressIndicator(color: Color(0xFFFE8043)),
+          );
+        }
+
+        if (!snapshot.hasData) {
+          return Center(child: TranslatedText('No hay posts disponibles'));
+        }
+
+        final likedPosts = snapshot.data!
+            .where((post) => post.isLiked)
+            .toList();
+
+        if (likedPosts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.favorite_border, size: 60, color: Colors.grey),
+                SizedBox(height: 16),
+                TranslatedText('Aún no tienes posts favoritos'),
+              ],
+            ),
+          );
+        }
+
+        return GridView.builder(
+          padding: EdgeInsets.all(2),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 2,
+            mainAxisSpacing: 2,
+          ),
+          itemCount: likedPosts.length,
+          itemBuilder: (context, index) {
+            return Image.network(
+              likedPosts[index].imageUrls[0],
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey[800],
+                  child: Icon(Icons.error, color: Colors.white),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }

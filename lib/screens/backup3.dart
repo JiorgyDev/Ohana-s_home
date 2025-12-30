@@ -16,6 +16,8 @@ import '../services/messaging_service.dart';
 import '../services/socket_service.dart';
 import '../services/translation_service.dart';
 import '../services/payment_service.dart';
+import '../data/model/payment_history_service.dart'; // ← NUEVO
+import '../data/model/payment_models.dart'; // ← NUEVO
 import '../config/stripe_config.dart';
 import '../widgets/language_selection_screen.dart';
 import '../widgets/translated_text.dart';
@@ -2503,7 +2505,12 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 }
 
-// Pantalla de Perfil
+// ============================================
+// PANTALLA DE PERFIL CON BADGE PREMIUM
+// ============================================
+// ============================================
+// PANTALLA DE PERFIL CON BADGE PREMIUM
+// ============================================
 class ProfileScreen extends StatefulWidget {
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
@@ -2515,11 +2522,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _email = '';
   int _likesCount = 0;
 
+  // ✅ DATOS DE PAGOS
+  PaymentHistoryData? _paymentHistory;
+  bool _isLoadingPayments = false;
+  String? _paymentError;
+
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _loadLikesCount();
+    _loadPaymentHistory();
   }
 
   @override
@@ -2539,7 +2552,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadLikesCount() async {
     try {
       final posts = await PetService.fetchPets();
-      final totalLikes = posts.where((post) => post.isLiked).length; // ✅ CAMBIO
+      final totalLikes = posts.where((post) => post.isLiked).length;
 
       setState(() {
         _likesCount = totalLikes;
@@ -2551,39 +2564,204 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Future<void> _loadPaymentHistory() async {
+    setState(() {
+      _isLoadingPayments = true;
+      _paymentError = null;
+    });
+
+    try {
+      final result = await PaymentHistoryService().getPaymentHistory();
+
+      if (result['success']) {
+        setState(() {
+          _paymentHistory = result['data'] as PaymentHistoryData?;
+          _isLoadingPayments = false;
+        });
+      } else {
+        setState(() {
+          _paymentError = result['message'];
+          _isLoadingPayments = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _paymentError = 'Error al cargar historial';
+        _isLoadingPayments = false;
+      });
+    }
+  }
+
+  // ✅ NUEVO: Determinar si el usuario es premium
+  bool get _isPremium {
+    if (_paymentHistory == null) return false;
+    return _paymentHistory!.hasActiveSubscription ||
+        _paymentHistory!.hasAdoptions;
+  }
+
+  // ✅ NUEVO: Obtener el plan más alto activo
+  String get _premiumPlanName {
+    if (_paymentHistory == null) return '';
+
+    // Prioridad: Adopciones > Suscripción General
+    if (_paymentHistory!.hasAdoptions) {
+      final activeAdoptions = _paymentHistory!.adoptions
+          .where((a) => a.isActive)
+          .toList();
+
+      if (activeAdoptions.isNotEmpty) {
+        // Buscar el plan más alto
+        activeAdoptions.sort(
+          (a, b) => int.parse(b.plan).compareTo(int.parse(a.plan)),
+        );
+        return activeAdoptions.first.planName;
+      }
+    }
+
+    if (_paymentHistory!.hasActiveSubscription) {
+      return _paymentHistory!.generalSubscription!.planName;
+    }
+
+    return '';
+  }
+
+  // ✅ NUEVO: Obtener icono del plan
+  String get _premiumIcon {
+    if (_paymentHistory == null) return '';
+
+    if (_paymentHistory!.hasAdoptions) {
+      return '🐾'; // Icono para adopciones
+    }
+
+    if (_paymentHistory!.hasActiveSubscription) {
+      return '⭐'; // Icono para suscripciones
+    }
+
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: () async {
           await _loadLikesCount();
+          await _loadPaymentHistory();
         },
         child: Column(
           children: [
-            // Header del perfil
+            // Header del perfil con badge premium
             Container(
               padding: EdgeInsets.all(30),
+              decoration: _isPremium
+                  ? BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color(0xFFFE8043).withOpacity(0.1),
+                          Color(0xFFFFD700).withOpacity(0.1),
+                        ],
+                      ),
+                    )
+                  : null,
               child: Column(
                 children: [
                   SizedBox(height: 36),
-                  Icon(
-                    Icons.person_outline_outlined,
-                    color: Colors.black,
-                    size: 50,
+
+                  // Avatar con badge premium
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        Icons.person_outline_outlined,
+                        color: Colors.black,
+                        size: 50,
+                      ),
+
+                      // ✅ BADGE PREMIUM
+                      if (_isPremium)
+                        Positioned(
+                          right: -8,
+                          top: -8,
+                          child: Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Color(0xFFFFD700).withOpacity(0.5),
+                                  blurRadius: 8,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              Icons.verified,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
+
                   SizedBox(height: 16),
 
+                  // Username
                   Text(
-                    '$_username', // ← Username NO se traduce (es nombre propio)
+                    '$_username',
                     style: TextStyle(
                       color: Colors.black,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+
                   SizedBox(height: 8),
 
-                  // ✅ TEXTO TRADUCIDO
+                  // ✅ BADGE DE PLAN PREMIUM
+                  if (_isPremium)
+                    Container(
+                      margin: EdgeInsets.only(bottom: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Color(0xFFFFD700).withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_premiumIcon, style: TextStyle(fontSize: 14)),
+                          SizedBox(width: 6),
+                          Text(
+                            _premiumPlanName,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Descripción
                   TranslatedText(
                     'Amante de los animales 🐶',
                     style: TextStyle(
@@ -2592,26 +2770,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
 
                   SizedBox(height: 16),
+
+                  // Estadísticas
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _buildStatColumn('456', '🐕‍🦺 Apoyos'),
+                      _buildStatColumn(
+                        '${_paymentHistory?.activeAdoptionsCount ?? 0}',
+                        '🐕‍🦺 Apoyos',
+                      ),
                       _buildStatColumn('$_likesCount', '🫶 Me encanta'),
                     ],
                   ),
+
                   SizedBox(height: 18),
-                  TranslatedText(
-                    '🌟 "¿Listo para marcar la diferencia? Con [Monto]/mes apoyás a quien más lo necesita.\n',
-                    style: TextStyle(
-                      color: const Color.fromARGB(255, 75, 75, 75),
-                    ),
-                  ),
-                  TranslatedText(
-                    'Recibirás una tarjeta de impacto mensual con lo que ayudaste\n❤️ Tu aporte cambia vidas.\n¡Sumate Hoy!',
-                    style: TextStyle(
-                      color: const Color.fromARGB(255, 75, 75, 75),
-                    ),
-                  ),
+
+                  // Mensaje motivacional (cambia si es premium)
+                  _isPremium
+                      ? TranslatedText(
+                          '💫 ¡Gracias por ser parte de nuestra familia premium!\n\nTu apoyo está cambiando vidas. 🙏',
+                          style: TextStyle(
+                            color: const Color.fromARGB(255, 75, 75, 75),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        )
+                      : TranslatedText(
+                          '🌟 "¿Listo para marcar la diferencia? Con [Monto]/mes apoyás a quien más lo necesita.\n\nRecibirás una tarjeta de impacto mensual con lo que ayudaste\n❤️ Tu aporte cambia vidas.\n¡Sumate Hoy!',
+                          style: TextStyle(
+                            color: const Color.fromARGB(255, 75, 75, 75),
+                          ),
+                        ),
                 ],
               ),
             ),
@@ -2633,6 +2822,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: 'Apoyo',
                   ),
                   _buildCategoryButton(
+                    index: 2,
+                    icon: Icons.star,
+                    label: 'Suscripción',
+                  ),
+                  _buildCategoryButton(
                     index: 4,
                     icon: Icons.thumb_up,
                     label: 'Likes',
@@ -2641,97 +2835,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
-            // Grid de posts del usuario
-            Expanded(
-              child: _selectedTab == 4
-                  ? FutureBuilder<List<PetModel>>(
-                      future: PetService.fetchPets(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFFE8043),
-                            ),
-                          );
-                        }
-
-                        if (!snapshot.hasData) {
-                          return Center(
-                            child: TranslatedText('No hay posts disponibles'),
-                          );
-                        }
-
-                        final likedPosts = snapshot.data!
-                            .where((post) => post.isLiked) // ✅ CAMBIO
-                            .toList();
-
-                        if (likedPosts.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.favorite_border,
-                                  size: 60,
-                                  color: Colors.grey,
-                                ),
-                                SizedBox(height: 16),
-                                TranslatedText('Aún no tienes posts favoritos'),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return GridView.builder(
-                          padding: EdgeInsets.all(2),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 2,
-                                mainAxisSpacing: 2,
-                              ),
-                          itemCount: likedPosts.length,
-                          itemBuilder: (context, index) {
-                            return Image.network(
-                              likedPosts[index].imageUrls[0], // ✅ CAMBIO
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[800],
-                                  child: Icon(Icons.error, color: Colors.white),
-                                );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    )
-                  : GridView.builder(
-                      padding: EdgeInsets.all(2),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 2,
-                        mainAxisSpacing: 2,
-                      ),
-                      itemCount: _getItemCount(),
-                      itemBuilder: (context, index) {
-                        return Container(
-                          color: Colors.grey[800],
-                          child: Center(
-                            child: Icon(
-                              Icons.image,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+            Expanded(child: _buildTabContent()),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStatColumn(String number, String label) {
+    return Column(
+      children: [
+        Text(
+          number,
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        TranslatedText(
+          label,
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      ],
     );
   }
 
@@ -2764,7 +2890,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           SizedBox(height: 4),
-          // ✅ CAMBIO: Usar TranslatedText aquí
           TranslatedText(
             label,
             style: TextStyle(
@@ -2778,40 +2903,538 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  int _getItemCount() {
+  Widget _buildTabContent() {
     switch (_selectedTab) {
       case 0:
-        return 15; // Todos
+        return _buildAdoptedPetsTab();
       case 1:
-        return 8; // Ahijados
+        return _buildDonationsTab();
       case 2:
-        return 5; // Adoptados
-      case 3:
-        return 12; // Apoyo
+        return _buildSubscriptionTab();
       case 4:
-        return 20; // Likes
+        return _buildLikesTab();
       default:
-        return 0;
+        return Center(child: Text('Pestaña no implementada'));
     }
   }
 
-  Widget _buildStatColumn(String number, String label) {
-    return Column(
-      children: [
-        Text(
-          number,
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+  // ✅ AGREGAR ESTOS MÉTODOS QUE FALTABAN:
+
+  Widget _buildAdoptedPetsTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar adopciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final adoptions = _paymentHistory?.adoptions ?? [];
+
+    if (adoptions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.pets, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Aún no has adoptado ninguna mascota',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Toca el botón Suscribir para empezar',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: adoptions.length,
+      itemBuilder: (context, index) {
+        final adoption = adoptions[index];
+        return Card(
+          margin: EdgeInsets.only(bottom: 16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 2,
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Color(0xFFFE8043).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        Icons.favorite,
+                        color: Color(0xFFFE8043),
+                        size: 24,
+                      ),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            adoption.planName,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            adoption.formattedAmount,
+                            style: TextStyle(
+                              color: Color(0xFFFE8043),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: adoption.isActive
+                            ? Colors.green.withOpacity(0.1)
+                            : Colors.grey.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        adoption.statusText,
+                        style: TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12),
+                Divider(),
+                SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TranslatedText(
+                          'Mascota',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          adoption.petName ?? 'N/A',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        TranslatedText(
+                          'Desde',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          adoption.formattedStartDate,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                if (adoption.isActive && adoption.nextPayment != null) ...[
+                  SizedBox(height: 12),
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 16,
+                          color: Colors.blue,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Próximo pago: ${adoption.formattedNextPayment}',
+                          style: TextStyle(fontSize: 12, color: Colors.blue),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDonationsTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar donaciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final donations = _paymentHistory?.donations ?? [];
+
+    if (donations.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.volunteer_activism, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Aún no has realizado donaciones',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Tu apoyo hace la diferencia',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: EdgeInsets.all(16),
+      itemCount: donations.length,
+      itemBuilder: (context, index) {
+        final donation = donations[index];
+        return Card(
+          margin: EdgeInsets.only(bottom: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 1,
+          child: ListTile(
+            contentPadding: EdgeInsets.all(16),
+            leading: Container(
+              padding: EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Color(0xFFFE8043).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(Icons.favorite, color: Color(0xFFFE8043), size: 24),
+            ),
+            title: Text(
+              donation.formattedAmount,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFE8043),
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(height: 4),
+                Text(donation.formattedDate, style: TextStyle(fontSize: 12)),
+                SizedBox(height: 4),
+                Text(donation.statusText, style: TextStyle(fontSize: 11)),
+              ],
+            ),
+            trailing: Icon(
+              Icons.check_circle,
+              color: donation.status == 'succeeded'
+                  ? Colors.green
+                  : Colors.grey,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubscriptionTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar suscripción',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final subscription = _paymentHistory?.generalSubscription;
+
+    if (subscription == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.star_outline, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'No tienes una suscripción activa',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Suscríbete para apoyar mensualmente',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFFFE8043), Color(0xFFFE8043).withOpacity(0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star, color: Colors.white, size: 48),
+                SizedBox(height: 16),
+                TranslatedText(
+                  'Plan Activo',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  subscription.planName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  subscription.formattedAmount,
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+                SizedBox(height: 24),
+                Divider(color: Colors.white.withOpacity(0.3)),
+                SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Desde',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedStartDate,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Próximo cargo',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedNextPayment,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: subscription.isActive
+                        ? Colors.white.withOpacity(0.2)
+                        : Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    subscription.statusText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        // ✅ CAMBIO: Usar TranslatedText aquí también
-        TranslatedText(
-          label,
-          style: TextStyle(color: Colors.grey, fontSize: 14),
-        ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildLikesTab() {
+    return FutureBuilder<List<PetModel>>(
+      future: PetService.fetchPets(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Center(
+            child: CircularProgressIndicator(color: Color(0xFFFE8043)),
+          );
+        }
+
+        if (!snapshot.hasData) {
+          return Center(child: TranslatedText('No hay posts disponibles'));
+        }
+
+        final likedPosts = snapshot.data!
+            .where((post) => post.isLiked)
+            .toList();
+
+        if (likedPosts.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.favorite_border, size: 60, color: Colors.grey),
+                SizedBox(height: 16),
+                TranslatedText('Aún no tienes posts favoritos'),
+              ],
+            ),
+          );
+        }
+
+        return GridView.builder(
+          padding: EdgeInsets.all(2),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 2,
+            mainAxisSpacing: 2,
+          ),
+          itemCount: likedPosts.length,
+          itemBuilder: (context, index) {
+            return Image.network(
+              likedPosts[index].imageUrls[0],
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.grey[800],
+                  child: Icon(Icons.error, color: Colors.white),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }

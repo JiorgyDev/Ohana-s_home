@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:ohanas_app/screens/homePage.dart';
 import 'package:ohanas_app/screens/ohanas_login.dart';
 import 'package:ohanas_app/screens/LoginScreen.dart';
 import 'package:ohanas_app/screens/ohanas_register.dart';
 import 'services/translation_service.dart';
 import 'services/auth_service.dart';
+import 'config/stripe_config.dart';
 import 'dart:math' as math;
-
-// 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
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializar Stripe
+  Stripe.publishableKey = StripeConfig.publishableKey;
+
   await AuthService().init();
-  await TranslationService().loadLanguage(); // ← AGREGA ESTA LÍNEA
+  await TranslationService().loadLanguage();
+
   runApp(const MainApp());
 }
 
@@ -24,13 +29,63 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        fontFamily: 'Quicksand', // <-- ¡AQUÍ ES DONDE LO PONES!
-        // primarySwatch: Colors.blue, // Puedes mantener tu primarySwatch o definir uno si no lo tienes
+        fontFamily: 'Quicksand',
+        // ✅ Configurar TextTheme completo
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(fontFamily: 'Quicksand'),
+          displayMedium: TextStyle(fontFamily: 'Quicksand'),
+          displaySmall: TextStyle(fontFamily: 'Quicksand'),
+          headlineLarge: TextStyle(fontFamily: 'Quicksand'),
+          headlineMedium: TextStyle(fontFamily: 'Quicksand'),
+          headlineSmall: TextStyle(fontFamily: 'Quicksand'),
+          titleLarge: TextStyle(fontFamily: 'Quicksand'),
+          titleMedium: TextStyle(fontFamily: 'Quicksand'),
+          titleSmall: TextStyle(fontFamily: 'Quicksand'),
+          bodyLarge: TextStyle(fontFamily: 'Quicksand'),
+          bodyMedium: TextStyle(fontFamily: 'Quicksand'),
+          bodySmall: TextStyle(fontFamily: 'Quicksand'),
+          labelLarge: TextStyle(fontFamily: 'Quicksand'),
+          labelMedium: TextStyle(fontFamily: 'Quicksand'),
+          labelSmall: TextStyle(fontFamily: 'Quicksand'),
+        ),
+        // ✅ Configurar AppBarTheme
+        appBarTheme: const AppBarTheme(
+          titleTextStyle: TextStyle(
+            fontFamily: 'Quicksand',
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        // ✅ Configurar InputDecorationTheme
+        inputDecorationTheme: const InputDecorationTheme(
+          labelStyle: TextStyle(fontFamily: 'Quicksand'),
+          hintStyle: TextStyle(fontFamily: 'Quicksand'),
+          helperStyle: TextStyle(fontFamily: 'Quicksand'),
+          errorStyle: TextStyle(fontFamily: 'Quicksand'),
+        ),
+        // ✅ Configurar ButtonTheme
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            textStyle: const TextStyle(
+              fontFamily: 'Quicksand',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            textStyle: const TextStyle(fontFamily: 'Quicksand'),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            textStyle: const TextStyle(fontFamily: 'Quicksand'),
+          ),
+        ),
       ),
       routes: {
         '/': (context) => const SplashScreen(),
         '/loginScreen': (context) => LoginScreen(),
-        // '/login': (context) => OhanasLogin(),
         '/register': (context) => OhanasRegister(),
         '/home': (context) => OhanasHome(),
       },
@@ -113,14 +168,11 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(Duration(seconds: 2));
 
     if (mounted) {
-      // Verificar si hay sesión activa
       final hasSession = await AuthService().checkSession();
 
       if (hasSession) {
-        // Si hay sesión, ir directo al home
         Navigator.of(context).pushReplacementNamed('/home');
       } else {
-        // Si no hay sesión, ir al login
         Navigator.of(context).pushReplacementNamed('/loginScreen');
       }
     }

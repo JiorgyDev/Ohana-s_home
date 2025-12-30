@@ -183,34 +183,11 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentPage = 0;
 
   late Future<List<PetModel>> _petsFuture;
-  List<PetModel> _petsCache = [];
 
   @override
   void initState() {
     super.initState();
-    _loadPets();
-  }
-
-  // ✅ NUEVO: Método para cargar y cachear mascotas
-  void _loadPets() {
     _petsFuture = PetService.fetchPets();
-    _petsFuture.then((pets) {
-      if (mounted) {
-        setState(() {
-          _petsCache = pets;
-        });
-      }
-    });
-  }
-
-  // ✅ NUEVO: Actualizar una mascota en el cache
-  void _updatePetInCache(String petId, PetModel updatedPet) {
-    setState(() {
-      final index = _petsCache.indexWhere((pet) => pet.id == petId);
-      if (index != -1) {
-        _petsCache[index] = updatedPet;
-      }
-    });
   }
 
   @override
@@ -219,7 +196,9 @@ class _HomeScreenState extends State<HomeScreen> {
       body: RefreshIndicator(
         color: Color(0xFFFE8043),
         onRefresh: () async {
-          _loadPets(); // ✅ CAMBIO: Usar el método centralizado
+          setState(() {
+            _petsFuture = PetService.fetchPets();
+          });
           await _petsFuture;
         },
         child: FutureBuilder<List<PetModel>>(
@@ -296,10 +275,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
             }
+
             // CASO 4: Mostrar datos
-            final posts = _petsCache.isNotEmpty
-                ? _petsCache
-                : snapshot.data!; // ✅ CAMBIO: Usar cache si existe
+            final posts = snapshot.data!;
 
             return PageView.builder(
               controller: _pageController,
@@ -314,15 +292,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 final actualIndex = index % posts.length;
                 return PhotoPostWidget(
                   post: posts[actualIndex],
-                  onLike: () => _toggleLike(
-                    actualIndex,
-                  ), // ✅ CAMBIO: Solo pasar el índice
+                  onLike: () => _toggleLike(posts, actualIndex),
                   onCommentAdded: () {
-                    // ✅ CAMBIO: Actualizar en el cache
-                    final updatedPet = posts[actualIndex].copyWith(
-                      comments: posts[actualIndex].comments + 1,
-                    );
-                    _updatePetInCache(posts[actualIndex].id, updatedPet);
+                    setState(() {
+                      posts[actualIndex] = posts[actualIndex].copyWith(
+                        comments: posts[actualIndex].comments + 1,
+                      );
+                    });
                   },
                 );
               },
@@ -333,51 +309,43 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _toggleLike(int index) async {
-    if (_petsCache.isEmpty) return;
+  void _toggleLike(List<PetModel> posts, int index) async {
+    // ✅ CAMBIO AQUÍ
+    final petId = posts[index].id; // ✅ CAMBIO: usar .id
 
-    final pet = _petsCache[index];
-    final petId = pet.id;
-    final previousLikes = pet.likes;
-    final previousIsLiked = pet.isLiked;
+    // Guardar valores anteriores
+    final previousLikes = posts[index].likes; // ✅ CAMBIO
+    final previousIsLiked = posts[index].isLiked; // ✅ CAMBIO
 
-    // ✅ Optimistic update en el cache
-    final updatedPet = pet.copyWith(
-      isLiked: !previousIsLiked,
-      likes: previousIsLiked ? previousLikes - 1 : previousLikes + 1,
-    );
-    _updatePetInCache(petId, updatedPet);
+    // Optimistic update
+    setState(() {
+      posts[index] = posts[index].copyWith(
+        // ✅ USAR copyWith
+        isLiked: !previousIsLiked,
+        likes: previousIsLiked ? previousLikes - 1 : previousLikes + 1,
+      );
+    });
 
     // Llamar al backend
     final result = await PetService.toggleLike(petId);
 
     if (!result['success']) {
-      // ✅ Revertir en el cache si falla
-      final revertedPet = pet.copyWith(
-        isLiked: previousIsLiked,
-        likes: previousLikes,
-      );
-      _updatePetInCache(petId, revertedPet);
+      // Revertir si falla
+      setState(() {
+        posts[index] = posts[index].copyWith(
+          isLiked: previousIsLiked,
+          likes: previousLikes,
+        );
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message'] ?? 'Error al dar like'),
             backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
           ),
         );
       }
-    } else {
-      // ✅ NUEVO: Sincronizar con el servidor
-      final serverLikesCount = result['likesCount'] ?? updatedPet.likes;
-      final serverIsLiked = result['isLiked'] ?? updatedPet.isLiked;
-
-      final syncedPet = pet.copyWith(
-        isLiked: serverIsLiked,
-        likes: serverLikesCount,
-      );
-      _updatePetInCache(petId, syncedPet);
     }
   }
 
@@ -946,18 +914,14 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
 
       if (result['success']) {
         _commentController.clear();
-
-        // ✅ ACTUALIZAR CONTADOR DESDE EL SERVIDOR
-        final newCommentsCount = result['commentsCount'] ?? _commentsCount + 1;
-
-        setState(() {
-          _commentsCount = newCommentsCount;
-        });
-
-        // Recargar comentarios
         await _loadComments(petId);
 
-        // ✅ NOTIFICAR AL PADRE PARA ACTUALIZAR EL CACHE
+        // ✅ INCREMENTAR CONTADOR
+        setState(() {
+          _commentsCount++;
+        });
+
+        // ✅ NOTIFICAR AL PADRE
         widget.onCommentAdded?.call();
 
         setModalState(() {});
@@ -1050,17 +1014,12 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
       );
 
       // ✅ INCREMENTAR CONTADOR EN EL BACKEND
-      try {
-        final shareResult = await PetService.incrementShare(widget.post.id);
+      final shareResult = await PetService.incrementShare(widget.post.id);
 
-        if (shareResult['success']) {
-          setState(() {
-            _sharesCount = shareResult['shares'] ?? _sharesCount + 1;
-          });
-        }
-      } catch (e) {
-        print('Error al incrementar share: $e');
-        // Continuar con el share aunque falle el contador
+      if (shareResult['success']) {
+        setState(() {
+          _sharesCount = shareResult['shares'];
+        });
       }
 
       // Descargar la imagen

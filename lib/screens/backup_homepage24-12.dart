@@ -4,13 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:ohanas_app/services/auth_service.dart';
-import 'package:ohanas_app/services/pet_service.dart'; // ✅ AGREGAR ESTA LÍNEA
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/model/comment.dart';
 import '../data/model/conversation.dart';
-import '../data/model/pet_model.dart';
 import '../services/comment_services.dart';
 import '../services/messaging_service.dart';
 import '../services/socket_service.dart';
@@ -25,31 +23,31 @@ import 'user_search_screen.dart';
 // ============================================
 // SERVICIO PARA CONECTAR CON EL API
 // ============================================
-// class PetService {
-//   static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
+class PetService {
+  static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
 
-//   static Future<List<PhotoPost>> fetchPets() async {
-//     try {
-//       final response = await http.get(Uri.parse('$baseUrl/pets'));
+  static Future<List<PhotoPost>> fetchPets() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/pets'));
 
-//       if (response.statusCode == 200) {
-//         final jsonData = json.decode(response.body);
-//         final petsData = jsonData['data']['pets'] as List;
-//         final List<PhotoPost> pets = petsData
-//             .map((petJson) => PhotoPost.fromJson(petJson))
-//             .toList();
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        final petsData = jsonData['data']['pets'] as List;
+        final List<PhotoPost> pets = petsData
+            .map((petJson) => PhotoPost.fromJson(petJson))
+            .toList();
 
-//         pets.shuffle(); // ← AGREGA ESTA LÍNEA
+        pets.shuffle(); // ← AGREGA ESTA LÍNEA
 
-//         return pets;
-//       } else {
-//         throw Exception('Error del servidor: ${response.statusCode}');
-//       }
-//     } catch (e) {
-//       throw Exception('Error al cargar mascotas: $e');
-//     }
-//   }
-// }
+        return pets;
+      } else {
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Error al cargar mascotas: $e');
+    }
+  }
+}
 
 // ignore: camel_case_types
 class homepage extends StatelessWidget {
@@ -182,35 +180,12 @@ class _HomeScreenState extends State<HomeScreen> {
   PageController _pageController = PageController();
   int _currentPage = 0;
 
-  late Future<List<PetModel>> _petsFuture;
-  List<PetModel> _petsCache = [];
+  late Future<List<PhotoPost>> _petsFuture;
 
   @override
   void initState() {
     super.initState();
-    _loadPets();
-  }
-
-  // ✅ NUEVO: Método para cargar y cachear mascotas
-  void _loadPets() {
     _petsFuture = PetService.fetchPets();
-    _petsFuture.then((pets) {
-      if (mounted) {
-        setState(() {
-          _petsCache = pets;
-        });
-      }
-    });
-  }
-
-  // ✅ NUEVO: Actualizar una mascota en el cache
-  void _updatePetInCache(String petId, PetModel updatedPet) {
-    setState(() {
-      final index = _petsCache.indexWhere((pet) => pet.id == petId);
-      if (index != -1) {
-        _petsCache[index] = updatedPet;
-      }
-    });
   }
 
   @override
@@ -219,10 +194,12 @@ class _HomeScreenState extends State<HomeScreen> {
       body: RefreshIndicator(
         color: Color(0xFFFE8043),
         onRefresh: () async {
-          _loadPets(); // ✅ CAMBIO: Usar el método centralizado
+          setState(() {
+            _petsFuture = PetService.fetchPets();
+          });
           await _petsFuture;
         },
-        child: FutureBuilder<List<PetModel>>(
+        child: FutureBuilder<List<PhotoPost>>(
           future: _petsFuture,
           builder: (context, snapshot) {
             // CASO 1: Cargando
@@ -296,10 +273,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               );
             }
+
             // CASO 4: Mostrar datos
-            final posts = _petsCache.isNotEmpty
-                ? _petsCache
-                : snapshot.data!; // ✅ CAMBIO: Usar cache si existe
+            final posts = snapshot.data!;
 
             return PageView.builder(
               controller: _pageController,
@@ -311,19 +287,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
               },
               itemBuilder: (context, index) {
-                final actualIndex = index % posts.length;
+                final actualIndex = index % posts.length; // ← AGREGA ESTA LÍNEA
                 return PhotoPostWidget(
-                  post: posts[actualIndex],
-                  onLike: () => _toggleLike(
-                    actualIndex,
-                  ), // ✅ CAMBIO: Solo pasar el índice
-                  onCommentAdded: () {
-                    // ✅ CAMBIO: Actualizar en el cache
-                    final updatedPet = posts[actualIndex].copyWith(
-                      comments: posts[actualIndex].comments + 1,
-                    );
-                    _updatePetInCache(posts[actualIndex].id, updatedPet);
-                  },
+                  post: posts[actualIndex], // ← USA actualIndex
+                  onLike: () =>
+                      _toggleLike(posts, actualIndex), // ← USA actualIndex
                 );
               },
             );
@@ -333,52 +301,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _toggleLike(int index) async {
-    if (_petsCache.isEmpty) return;
-
-    final pet = _petsCache[index];
-    final petId = pet.id;
-    final previousLikes = pet.likes;
-    final previousIsLiked = pet.isLiked;
-
-    // ✅ Optimistic update en el cache
-    final updatedPet = pet.copyWith(
-      isLiked: !previousIsLiked,
-      likes: previousIsLiked ? previousLikes - 1 : previousLikes + 1,
-    );
-    _updatePetInCache(petId, updatedPet);
-
-    // Llamar al backend
-    final result = await PetService.toggleLike(petId);
-
-    if (!result['success']) {
-      // ✅ Revertir en el cache si falla
-      final revertedPet = pet.copyWith(
-        isLiked: previousIsLiked,
-        likes: previousLikes,
-      );
-      _updatePetInCache(petId, revertedPet);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(result['message'] ?? 'Error al dar like'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
-          ),
-        );
+  void _toggleLike(List<PhotoPost> posts, int index) {
+    setState(() {
+      posts[index].isLiked = !posts[index].isLiked;
+      if (posts[index].isLiked) {
+        posts[index].likes++;
+      } else {
+        posts[index].likes--;
       }
-    } else {
-      // ✅ NUEVO: Sincronizar con el servidor
-      final serverLikesCount = result['likesCount'] ?? updatedPet.likes;
-      final serverIsLiked = result['isLiked'] ?? updatedPet.isLiked;
-
-      final syncedPet = pet.copyWith(
-        isLiked: serverIsLiked,
-        likes: serverLikesCount,
-      );
-      _updatePetInCache(petId, syncedPet);
-    }
+      _petsFuture = Future.value(posts);
+    });
   }
 
   @override
@@ -389,16 +321,11 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class PhotoPostWidget extends StatefulWidget {
-  final PetModel post;
+  final PhotoPost post;
   final VoidCallback onLike;
-  final VoidCallback? onCommentAdded; // ✅ NUEVO
 
-  const PhotoPostWidget({
-    Key? key,
-    required this.post,
-    required this.onLike,
-    this.onCommentAdded, // ✅ NUEVO
-  }) : super(key: key);
+  const PhotoPostWidget({Key? key, required this.post, required this.onLike})
+    : super(key: key);
 
   @override
   _PhotoPostWidgetState createState() => _PhotoPostWidgetState();
@@ -408,23 +335,20 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   late bool _isLiked;
   late int _likesCount;
   late int _commentsCount;
-  late int _sharesCount;
-  late PageController _imagePageController; // ✅ AGREGAR
-  int _currentImageIndex = 0; // ✅ AGREGAR
-  bool _isDescriptionExpanded = false; // ✅ AGREGAR
-  String? _translatedDescription; // ✅ AGREGAR
-  List<Map<String, dynamic>> _comments = [];
-  bool _loadingComments = false; // ✅ AGREGAR
-  final TextEditingController _commentController =
-      TextEditingController(); // ✅ AGREGAR
+  late PageController _imagePageController;
+  int _currentImageIndex = 0;
+  bool _isDescriptionExpanded = false;
+  String? _translatedDescription;
+  List<Comment> _comments = [];
+  bool _loadingComments = false;
+  final TextEditingController _commentController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _isLiked = widget.post.isLiked; // ✅ CAMBIO
-    _likesCount = widget.post.likes; // ✅ CAMBIO
-    _commentsCount = widget.post.comments; // ✅ CAMBIO
-    _sharesCount = widget.post.shares; // ✅ CAMBIO
+    _isLiked = widget.post.isLiked;
+    _likesCount = widget.post.likes;
+    _commentsCount = widget.post.comments;
     _imagePageController = PageController();
     _loadDescription(); // ← AÑADIR ESTA LÍNEA
   }
@@ -445,16 +369,10 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   void didUpdateWidget(PhotoPostWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.post.id != widget.post.id) {
-      // ✅ CAMBIO
       setState(() {
         _currentImageIndex = 0;
-        _isLiked = widget.post.isLiked; // ✅ CAMBIO
-        _likesCount = widget.post.likes; // ✅ CAMBIO
-        _commentsCount = widget.post.comments; // ✅ CAMBIO
-        _sharesCount = widget.post.shares; // ✅ CAMBIO
       });
       _imagePageController.jumpToPage(0);
-      _loadDescription();
     }
   }
 
@@ -467,14 +385,10 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ AGREGAR ESTA LÍNEA AL INICIO
-    final imageUrls = widget.post.imageUrls;
-
     return Stack(
       children: [
         // Carrusel de imágenes
-        imageUrls
-                .isNotEmpty // ✅ CAMBIO: usar imageUrls
+        widget.post.imageUrls.isNotEmpty
             ? GestureDetector(
                 onPanUpdate: (details) {
                   if (details.delta.dx.abs() > details.delta.dy.abs()) {}
@@ -482,7 +396,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                 child: PageView.builder(
                   controller: _imagePageController,
                   scrollDirection: Axis.horizontal,
-                  itemCount: imageUrls.length, // ✅ CAMBIO
+                  itemCount: widget.post.imageUrls.length,
                   physics: ClampingScrollPhysics(),
                   pageSnapping: true,
                   onPageChanged: (index) {
@@ -497,7 +411,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                       color: Colors.black,
                       child: Center(
                         child: Image.network(
-                          imageUrls[index], // ✅ CAMBIO: usar imageUrls[index]
+                          widget.post.imageUrls[index],
                           fit: BoxFit.contain,
                           width: double.infinity,
                           height: double.infinity,
@@ -559,7 +473,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
         ),
 
         // Indicadores de página (puntitos)
-        if (imageUrls.length > 1) // ✅ CAMBIO
+        if (widget.post.imageUrls.length > 1)
           Positioned(
             top: 50,
             left: 0,
@@ -567,7 +481,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(
-                imageUrls.length, // ✅ CAMBIO
+                widget.post.imageUrls.length,
                 (index) => Container(
                   margin: EdgeInsets.symmetric(horizontal: 3),
                   width: 3,
@@ -607,7 +521,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   height: 32,
                   fit: BoxFit.contain,
                 ),
-                label: _formatNumber(widget.post.apoyo), // ✅
+                label: _formatNumber(widget.post.apoyo),
                 onTap: () => _apoyarPost(context),
               ),
               SizedBox(height: 10),
@@ -620,8 +534,15 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   color: _isLiked ? Color(0xFFB42C1C) : Colors.white,
                 ),
                 label: _formatNumber(_likesCount),
-                onTap: widget
-                    .onLike, // ✅ CAMBIO SIMPLE: Llamar al callback del padre
+                onTap: () {
+                  setState(() {
+                    _isLiked = !_isLiked;
+                    _likesCount += _isLiked ? 1 : -1;
+                  });
+
+                  widget.post.isLiked = _isLiked;
+                  widget.post.likes = _likesCount;
+                },
               ),
               SizedBox(height: 10),
               _buildActionButton(
@@ -633,7 +554,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   color: Colors.white,
                 ),
                 label: _formatNumber(_commentsCount),
-                onTap: () => _showComments(context, widget.post.id), // ✅
+                onTap: () => _showComments(context, widget.post.id),
               ),
               SizedBox(height: 10),
               _buildActionButton(
@@ -644,7 +565,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   fit: BoxFit.contain,
                   color: Colors.white,
                 ),
-                label: _formatNumber(_sharesCount), // ✅
+                label: _formatNumber(widget.post.shares),
                 onTap: _sharePostToWhatsApp,
               ),
             ],
@@ -660,7 +581,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                widget.post.name, // ✅ // ← Nombre de usuario, NO traducir
+                '${widget.post.username}', // ← Nombre de usuario, NO traducir
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
@@ -671,7 +592,8 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
 
               // Descripción del post traducida
               Text(
-                _translatedDescription ?? widget.post.description,
+                _translatedDescription ??
+                    widget.post.description, // ← CAMBIO PRINCIPAL
                 style: TextStyle(color: Colors.white, fontSize: 14),
                 textAlign: TextAlign.justify,
                 maxLines: _isDescriptionExpanded ? null : 3,
@@ -679,7 +601,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                     ? TextOverflow.visible
                     : TextOverflow.ellipsis,
               ),
-              if (widget.post.description.length > 100) // ✅
+              if (widget.post.description.length > 100)
                 GestureDetector(
                   onTap: () {
                     setState(() {
@@ -810,8 +732,8 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                           itemBuilder: (context, index) {
                             final comment = _comments[index];
                             return _buildComment(
-                              comment['username'] ?? 'Usuario', // ✅
-                              comment['content'] ?? '', // ✅
+                              comment.username,
+                              comment.content,
                             );
                           },
                         ),
@@ -889,19 +811,20 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   // ============================================
   // FUNCIÓN PARA CARGAR COMENTARIOS
   // ============================================
-  // ============================================
-  // BUSCA Y REEMPLAZA LA FUNCIÓN _loadComments COMPLETA
-  // ============================================
-
   Future<void> _loadComments(String petId) async {
-    if (_loadingComments) return;
+    if (_loadingComments) return; // ← Evitar cargas duplicadas
 
     setState(() {
       _loadingComments = true;
     });
 
     try {
-      final comments = await PetService.getComments(petId); // ✅ NUEVO
+      final comments = await CommentService()
+          .getCommentsByPet(petId)
+          .timeout(
+            Duration(seconds: 3), // ← Reducir a 3 segundos
+            onTimeout: () => <Comment>[], // ← Retornar lista vacía en timeout
+          );
 
       if (mounted) {
         setState(() {
@@ -913,17 +836,16 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
       print('Error cargando comentarios: $e');
       if (mounted) {
         setState(() {
-          _comments = [];
+          _comments = []; // ← Asegurar que quede vacío
           _loadingComments = false;
         });
       }
     }
   }
 
-  /// ============================================
-  // BUSCA Y REEMPLAZA LA FUNCIÓN _sendComment COMPLETA
   // ============================================
-
+  // FUNCIÓN PARA ENVIAR COMENTARIO
+  // ============================================
   Future<void> _sendComment(String petId, StateSetter setModalState) async {
     final content = _commentController.text.trim();
 
@@ -938,28 +860,25 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     }
 
     try {
-      final result = await PetService.createComment(
-        // ✅ NUEVO
+      final result = await CommentService().createComment(
         petId: petId,
         content: content,
       );
 
       if (result['success']) {
+        // Limpiar el campo
         _commentController.clear();
-
-        // ✅ ACTUALIZAR CONTADOR DESDE EL SERVIDOR
-        final newCommentsCount = result['commentsCount'] ?? _commentsCount + 1;
-
-        setState(() {
-          _commentsCount = newCommentsCount;
-        });
 
         // Recargar comentarios
         await _loadComments(petId);
 
-        // ✅ NOTIFICAR AL PADRE PARA ACTUALIZAR EL CACHE
-        widget.onCommentAdded?.call();
+        // ✅ INCREMENTAR CONTADOR DE COMENTARIOS
+        setState(() {
+          _commentsCount++;
+          widget.post.comments = _commentsCount; // Actualizar el post también
+        });
 
+        // Actualizar modal
         setModalState(() {});
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1022,12 +941,9 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     );
   }
 
-  // ============================================
-  // BUSCA Y REEMPLAZA _sharePostToWhatsApp COMPLETA
-  // ============================================
-
   void _sharePostToWhatsApp() async {
     try {
+      // Mostrar indicador de carga
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(
@@ -1049,47 +965,33 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
         ),
       );
 
-      // ✅ INCREMENTAR CONTADOR EN EL BACKEND
-      try {
-        final shareResult = await PetService.incrementShare(widget.post.id);
-
-        if (shareResult['success']) {
-          setState(() {
-            _sharesCount = shareResult['shares'] ?? _sharesCount + 1;
-          });
-        }
-      } catch (e) {
-        print('Error al incrementar share: $e');
-        // Continuar con el share aunque falle el contador
-      }
-
       // Descargar la imagen
-      final imageUrls = widget.post.imageUrls;
-      if (imageUrls.isEmpty) return;
-
-      final response = await http.get(Uri.parse(imageUrls.first));
+      final response = await http.get(Uri.parse(widget.post.imageUrls.first));
 
       if (response.statusCode != 200) {
         throw Exception('Error al descargar imagen');
       }
 
+      // Guardar temporalmente
       final directory = await getTemporaryDirectory();
       final imagePath = '${directory.path}/share_${widget.post.id}.jpg';
       final imageFile = File(imagePath);
       await imageFile.writeAsBytes(response.bodyBytes);
 
-      final description = widget.post.description;
+      // Texto para compartir
       final text =
           '''
-🐶 ¡Mira a ${widget.post.name}!
+🐶 ¡Mira a ${widget.post.username}!
 
-${description.length > 100 ? '${description.substring(0, 100)}...' : description}
+${widget.post.description.length > 100 ? '${widget.post.description.substring(0, 100)}...' : widget.post.description}
 
 ❤️ Descarga Wooheart App y ayúdanos a encontrarle un hogar.
 ''';
 
+      // Compartir
       await Share.shareXFiles([XFile(imagePath)], text: text);
 
+      // Limpiar archivo temporal después de 3 segundos
       Future.delayed(Duration(seconds: 3), () {
         if (imageFile.existsSync()) {
           imageFile.deleteSync();
@@ -1098,6 +1000,7 @@ ${description.length > 100 ? '${description.substring(0, 100)}...' : description
     } catch (e) {
       debugPrint('Error al compartir: $e');
 
+      // Mostrar error al usuario
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2539,7 +2442,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadLikesCount() async {
     try {
       final posts = await PetService.fetchPets();
-      final totalLikes = posts.where((post) => post.isLiked).length; // ✅ CAMBIO
+      final totalLikes = posts.where((post) => post.isLiked).length;
 
       setState(() {
         _likesCount = totalLikes;
@@ -2644,7 +2547,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             // Grid de posts del usuario
             Expanded(
               child: _selectedTab == 4
-                  ? FutureBuilder<List<PetModel>>(
+                  ? FutureBuilder<List<PhotoPost>>(
                       future: PetService.fetchPets(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
@@ -2663,7 +2566,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         }
 
                         final likedPosts = snapshot.data!
-                            .where((post) => post.isLiked) // ✅ CAMBIO
+                            .where((post) => post.isLiked)
                             .toList();
 
                         if (likedPosts.isEmpty) {
@@ -2694,7 +2597,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           itemCount: likedPosts.length,
                           itemBuilder: (context, index) {
                             return Image.network(
-                              likedPosts[index].imageUrls[0], // ✅ CAMBIO
+                              likedPosts[index].imageUrls.first,
                               fit: BoxFit.cover,
                               errorBuilder: (context, error, stackTrace) {
                                 return Container(
@@ -3907,56 +3810,56 @@ class _LiveChatScreenState extends State<LiveChatScreen> {
 }
 
 // Modelo de datos para los posts
-// class PhotoPost {
-//   final String id;
-//   final String username;
-//   final String description;
-//   final List<String> imageUrls; // <- CAMBIÓ: ahora es lista
-//   final String species; // <- NUEVO
-//   final String breed; // <- NUEVO
-//   final int age; // <- NUEVO
-//   final String adoptionStatus; // <- NUEVO
-//   int adopcion;
-//   int apoyo;
-//   int likes;
-//   int comments;
-//   final int shares;
-//   bool isLiked;
+class PhotoPost {
+  final String id;
+  final String username;
+  final String description;
+  final List<String> imageUrls; // <- CAMBIÓ: ahora es lista
+  final String species; // <- NUEVO
+  final String breed; // <- NUEVO
+  final int age; // <- NUEVO
+  final String adoptionStatus; // <- NUEVO
+  int adopcion;
+  int apoyo;
+  int likes;
+  int comments;
+  final int shares;
+  bool isLiked;
 
-//   PhotoPost({
-//     required this.id,
-//     required this.username,
-//     required this.description,
-//     required this.imageUrls, // <- CAMBIÓ
-//     required this.species,
-//     required this.breed,
-//     required this.age,
-//     required this.adoptionStatus,
-//     required this.adopcion,
-//     required this.apoyo,
-//     required this.likes,
-//     required this.comments,
-//     required this.shares,
-//     this.isLiked = false,
-//   });
+  PhotoPost({
+    required this.id,
+    required this.username,
+    required this.description,
+    required this.imageUrls, // <- CAMBIÓ
+    required this.species,
+    required this.breed,
+    required this.age,
+    required this.adoptionStatus,
+    required this.adopcion,
+    required this.apoyo,
+    required this.likes,
+    required this.comments,
+    required this.shares,
+    this.isLiked = false,
+  });
 
-//   // Constructor para crear PhotoPost desde JSON del API
-//   factory PhotoPost.fromJson(Map<String, dynamic> json) {
-//     return PhotoPost(
-//       id: json['_id'] ?? '',
-//       username: json['name'] ?? 'Sin nombre',
-//       description: json['description'] ?? 'Sin descripción',
-//       imageUrls: List<String>.from(json['imageUrls'] ?? []),
-//       species: json['species'] ?? 'unknown',
-//       breed: json['breed'] ?? 'unknown',
-//       age: json['age'] ?? 0,
-//       adoptionStatus: json['adoptionStatus'] ?? 'available',
-//       adopcion: 0,
-//       apoyo: 0,
-//       likes: 0,
-//       comments: 0,
-//       shares: 0,
-//       isLiked: false,
-//     );
-//   }
-// }
+  // Constructor para crear PhotoPost desde JSON del API
+  factory PhotoPost.fromJson(Map<String, dynamic> json) {
+    return PhotoPost(
+      id: json['_id'] ?? '',
+      username: json['name'] ?? 'Sin nombre',
+      description: json['description'] ?? 'Sin descripción',
+      imageUrls: List<String>.from(json['imageUrls'] ?? []),
+      species: json['species'] ?? 'unknown',
+      breed: json['breed'] ?? 'unknown',
+      age: json['age'] ?? 0,
+      adoptionStatus: json['adoptionStatus'] ?? 'available',
+      adopcion: 0,
+      apoyo: 0,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      isLiked: false,
+    );
+  }
+}
