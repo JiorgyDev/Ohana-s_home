@@ -10,7 +10,7 @@ class MessagingService {
   factory MessagingService() => _instance;
   MessagingService._internal();
 
-  static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
+  static const String baseUrl = 'https://wooheartc-back-zz5h.onrender.com/api/v1';
 
   Map<String, String> _getAuthHeaders() {
     final token = AuthService().token;

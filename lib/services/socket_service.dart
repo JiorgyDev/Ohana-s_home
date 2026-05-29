@@ -35,7 +35,7 @@ class SocketService {
     print('🔌 Conectando socket...');
 
     _socket = IO.io(
-      'https://wooheartc-back.onrender.com',
+      'https://wooheartc-back-zz5h.onrender.com',
       IO.OptionBuilder()
           .setTransports(['websocket'])
           .disableAutoConnect()

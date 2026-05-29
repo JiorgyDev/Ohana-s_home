@@ -1,55 +1,39 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:intl/intl.dart';
 import 'package:ohanas_app/services/auth_service.dart';
 import 'package:ohanas_app/services/pet_service.dart'; // ✅ AGREGAR ESTA LÍNEA
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../services/like_notifier.dart';
 import '../data/model/comment.dart';
 import '../data/model/conversation.dart';
 import '../data/model/pet_model.dart';
 import '../services/comment_services.dart';
 import '../services/messaging_service.dart';
+import '../services/translation_cache.dart';
+import '../utils/logger.dart';
+import '../utils/formatters.dart';
 import '../services/socket_service.dart';
 import '../services/translation_service.dart';
 import '../services/payment_service.dart';
+import '../data/model/payment_history_service.dart'; // ← NUEVO
+import '../data/model/payment_models.dart'; // ← NUEVO
 import '../config/stripe_config.dart';
+import '../config/app_colors.dart';
 import '../widgets/language_selection_screen.dart';
 import '../widgets/translated_text.dart';
+import '../widgets/benefit_item.dart';
 import 'chat_screen.dart';
 import 'user_search_screen.dart';
-
-// ============================================
-// SERVICIO PARA CONECTAR CON EL API
-// ============================================
-// class PetService {
-//   static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
-
-//   static Future<List<PhotoPost>> fetchPets() async {
-//     try {
-//       final response = await http.get(Uri.parse('$baseUrl/pets'));
-
-//       if (response.statusCode == 200) {
-//         final jsonData = json.decode(response.body);
-//         final petsData = jsonData['data']['pets'] as List;
-//         final List<PhotoPost> pets = petsData
-//             .map((petJson) => PhotoPost.fromJson(petJson))
-//             .toList();
-
-//         pets.shuffle(); // ← AGREGA ESTA LÍNEA
-
-//         return pets;
-//       } else {
-//         throw Exception('Error del servidor: ${response.statusCode}');
-//       }
-//     } catch (e) {
-//       throw Exception('Error al cargar mascotas: $e');
-//     }
-//   }
-// }
+import './profile/likes_screen.dart';
+import './profile/adopted_pets_screen.dart';
+import './profile/supported_pets_screen.dart';
 
 // ignore: camel_case_types
 class homepage extends StatelessWidget {
@@ -60,6 +44,7 @@ class homepage extends StatelessWidget {
     return MainScreen(); // ← Solo devuelve MainScreen, sin MaterialApp
   }
 }
+// b30be4bc415c6d167cb99c8e62a18dfdb3e86079
 
 class MainScreen extends StatefulWidget {
   @override
@@ -68,7 +53,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
-  PageController _pageController = PageController();
+  // PageController _pageController = PageController();
 
   final List<Widget> _screens = [
     HomeScreen(),
@@ -77,6 +62,15 @@ class _MainScreenState extends State<MainScreen> {
     InboxScreen(),
     SettingsScreen(),
   ];
+
+  // ✅ AGREGAR ESTE MÉTODO COMPLETO AQUÍ
+  Widget _getScreen(int index) {
+    if (index == 1) {
+      // Forzar rebuild de ProfileScreen cada vez que se selecciona
+      return ProfileScreen(key: ValueKey(DateTime.now()));
+    }
+    return _screens[index];
+  }
 
   // ✅ MÉTODO HELPER PARA TRADUCIR
   String _translate(String text) {
@@ -118,12 +112,12 @@ class _MainScreenState extends State<MainScreen> {
         return true;
       },
       child: Scaffold(
-        body: IndexedStack(index: _currentIndex, children: _screens),
+        body: _getScreen(_currentIndex),
         bottomNavigationBar: BottomNavigationBar(
           type: BottomNavigationBarType.fixed,
-          backgroundColor: Color(0xFF7C4C48),
-          selectedItemColor: Colors.white,
-          unselectedItemColor: const Color.fromARGB(255, 63, 63, 63),
+          backgroundColor: AppColors.secondary, // ✅
+          selectedItemColor: AppColors.textWhite, // ✅
+          unselectedItemColor: AppColors.textDarkGrey, // ✅
           currentIndex: _currentIndex,
           onTap: (index) {
             setState(() {
@@ -178,29 +172,56 @@ class HomeScreen extends StatefulWidget {
   _HomeScreenState createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  PageController _pageController = PageController();
+class _HomeScreenState extends State<HomeScreen>
+    with AutomaticKeepAliveClientMixin {
+  // PageController _pageController = PageController();
+  late PageController _pageController;
   int _currentPage = 0;
 
   late Future<List<PetModel>> _petsFuture;
   List<PetModel> _petsCache = [];
+  static const int _maxCacheSize = 100;
+  // ✅✅✅ AGREGAR ESTAS 3 LÍNEAS AQUÍ ✅✅✅
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     _loadPets();
   }
 
   // ✅ NUEVO: Método para cargar y cachear mascotas
   void _loadPets() {
+    Logger.info('Cargando mascotas desde el servidor...');
     _petsFuture = PetService.fetchPets();
-    _petsFuture.then((pets) {
-      if (mounted) {
-        setState(() {
-          _petsCache = pets;
+    _petsFuture
+        .then((pets) async {
+          if (mounted) {
+            setState(() {
+              _petsCache = pets;
+            });
+            Logger.success('${pets.length} mascotas cargadas correctamente');
+
+            // ✅ PRECACHEAR traducciones en background
+            if (TranslationService().currentLanguage != 'es') {
+              final descriptions = pets.map((p) => p.description).toList();
+              TranslationCache()
+                  .precacheDescriptions(descriptions)
+                  .then((_) {
+                    Logger.success('Traducciones precacheadas');
+                  })
+                  .catchError((e) {
+                    Logger.warning('Error precacheando traducciones: $e');
+                  });
+            }
+          }
+        })
+        .catchError((error) {
+          Logger.error('Error al cargar mascotas', error);
         });
-      }
-    });
   }
 
   // ✅ NUEVO: Actualizar una mascota en el cache
@@ -215,9 +236,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       body: RefreshIndicator(
-        color: Color(0xFFFE8043),
+        color: AppColors.primary,
         onRefresh: () async {
           _loadPets(); // ✅ CAMBIO: Usar el método centralizado
           await _petsFuture;
@@ -231,7 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(color: Color(0xFFFE8043)),
+                    CircularProgressIndicator(color: AppColors.primary),
                     SizedBox(height: 16),
                     TranslatedText(
                       'Cargando mascotas...',
@@ -272,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       },
                       child: TranslatedText('Reintentar'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFFFE8043),
+                        backgroundColor: AppColors.primary,
                       ),
                     ),
                   ],
@@ -297,28 +319,30 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             }
             // CASO 4: Mostrar datos
-            final posts = _petsCache.isNotEmpty
-                ? _petsCache
-                : snapshot.data!; // ✅ CAMBIO: Usar cache si existe
+            // CASO 4: Mostrar datos
+            final posts = _petsCache.isNotEmpty ? _petsCache : snapshot.data!;
+
+            // ✅ NUEVO: Calcular itemCount seguro
+            // Permitimos 1000 repeticiones del feed (más que suficiente)
+            final int? totalItems = null;
 
             return PageView.builder(
               controller: _pageController,
               scrollDirection: Axis.vertical,
-              itemCount: null,
+              itemCount: totalItems, // ← null = infinito
               onPageChanged: (index) {
                 setState(() {
                   _currentPage = index;
                 });
               },
               itemBuilder: (context, index) {
+                // ✅ OPTIMIZACIÓN: Módulo para ciclo infinito
                 final actualIndex = index % posts.length;
+
                 return PhotoPostWidget(
                   post: posts[actualIndex],
-                  onLike: () => _toggleLike(
-                    actualIndex,
-                  ), // ✅ CAMBIO: Solo pasar el índice
+                  onLike: () => _toggleLike(actualIndex),
                   onCommentAdded: () {
-                    // ✅ CAMBIO: Actualizar en el cache
                     final updatedPet = posts[actualIndex].copyWith(
                       comments: posts[actualIndex].comments + 1,
                     );
@@ -341,18 +365,74 @@ class _HomeScreenState extends State<HomeScreen> {
     final previousLikes = pet.likes;
     final previousIsLiked = pet.isLiked;
 
-    // ✅ Optimistic update en el cache
+    // Optimistic update en el cache
     final updatedPet = pet.copyWith(
       isLiked: !previousIsLiked,
       likes: previousIsLiked ? previousLikes - 1 : previousLikes + 1,
     );
     _updatePetInCache(petId, updatedPet);
 
-    // Llamar al backend
-    final result = await PetService.toggleLike(petId);
+    try {
+      // Llamar al backend con timeout
+      final result = await PetService.toggleLike(
+        petId,
+      ).timeout(Duration(seconds: 10));
 
-    if (!result['success']) {
-      // ✅ Revertir en el cache si falla
+      if (!result['success']) {
+        // Revertir en el cache si falla
+        final revertedPet = pet.copyWith(
+          isLiked: previousIsLiked,
+          likes: previousLikes,
+        );
+        _updatePetInCache(petId, revertedPet);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result['message'] ?? 'Error al dar like'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // ✅ CAMBIO PRINCIPAL: Recargar desde el servidor para garantizar persistencia
+        try {
+          final freshPets = await PetService.fetchPets();
+          final freshPet = freshPets.firstWhere(
+            (p) => p.id == petId,
+            orElse: () => updatedPet,
+          );
+
+          // Actualizar con datos frescos del servidor
+          _updatePetInCache(petId, freshPet);
+
+          // Actualizar todo el cache con los datos frescos (opcional pero recomendado)
+          if (mounted) {
+            setState(() {
+              // Actualizar solo los pets que cambiaron
+              for (var freshPet in freshPets) {
+                _updatePetInCache(freshPet.id, freshPet);
+              }
+            });
+          }
+
+          likeNotifier.notifyLikeChanged();
+        } catch (e) {
+          // Si falla la recarga, usar datos del response
+          final serverLikesCount = result['likesCount'] ?? updatedPet.likes;
+          final serverIsLiked = result['isLiked'] ?? updatedPet.isLiked;
+
+          final syncedPet = pet.copyWith(
+            isLiked: serverIsLiked,
+            likes: serverLikesCount,
+          );
+          _updatePetInCache(petId, syncedPet);
+          likeNotifier.notifyLikeChanged();
+        }
+      }
+    } on TimeoutException {
+      // Si tarda más de 10 segundos
       final revertedPet = pet.copyWith(
         isLiked: previousIsLiked,
         likes: previousLikes,
@@ -362,28 +442,41 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message'] ?? 'Error al dar like'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 2),
+            content: Text('Conexión lenta. Intenta de nuevo'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
-    } else {
-      // ✅ NUEVO: Sincronizar con el servidor
-      final serverLikesCount = result['likesCount'] ?? updatedPet.likes;
-      final serverIsLiked = result['isLiked'] ?? updatedPet.isLiked;
+    } catch (e) {
+      // Cualquier otro error
+      debugPrint('Error en toggleLike: $e');
 
-      final syncedPet = pet.copyWith(
-        isLiked: serverIsLiked,
-        likes: serverLikesCount,
+      final revertedPet = pet.copyWith(
+        isLiked: previousIsLiked,
+        likes: previousLikes,
       );
-      _updatePetInCache(petId, syncedPet);
+      _updatePetInCache(petId, revertedPet);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sin conexión. Revisa tu internet'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    // ✅ FIX: Asegurar dispose seguro
+    if (_pageController.hasClients) {
+      _pageController.dispose();
+    }
+    _petsCache.clear();
+    Logger.info('HomeScreen disposed correctamente');
     super.dispose();
   }
 }
@@ -431,7 +524,8 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
 
   // ← AÑADIR ESTE MÉTODO COMPLETO
   Future<void> _loadDescription() async {
-    final translated = await TranslationService().translate(
+    // ✅ USAR CACHE en vez de TranslationService directo
+    final translated = await TranslationCache().translate(
       widget.post.description,
     );
     if (mounted) {
@@ -444,24 +538,73 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   @override
   void didUpdateWidget(PhotoPostWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    // ✅ OPTIMIZACIÓN: Actualizar SOLO lo que cambió
+    bool needsUpdate = false;
+
+    if (oldWidget.post.isLiked != widget.post.isLiked) {
+      _isLiked = widget.post.isLiked;
+      needsUpdate = true;
+      Logger.info('Like actualizado: $_isLiked');
+    }
+
+    if (oldWidget.post.likes != widget.post.likes) {
+      _likesCount = widget.post.likes;
+      needsUpdate = true;
+      Logger.info('Contador likes actualizado: $_likesCount');
+    }
+
+    if (oldWidget.post.comments != widget.post.comments) {
+      _commentsCount = widget.post.comments;
+      needsUpdate = true;
+      Logger.info('Contador comments actualizado: $_commentsCount');
+    }
+
+    if (oldWidget.post.shares != widget.post.shares) {
+      _sharesCount = widget.post.shares;
+      needsUpdate = true;
+      Logger.info('Contador shares actualizado: $_sharesCount');
+    }
+
+    // Solo hacer setState si ALGO cambió
+    if (needsUpdate && mounted) {
+      setState(() {});
+    }
+
+    // ✅ FIX MEMORY LEAK: Recrear PageController cuando cambia la mascota
     if (oldWidget.post.id != widget.post.id) {
-      // ✅ CAMBIO
-      setState(() {
-        _currentImageIndex = 0;
-        _isLiked = widget.post.isLiked; // ✅ CAMBIO
-        _likesCount = widget.post.likes; // ✅ CAMBIO
-        _commentsCount = widget.post.comments; // ✅ CAMBIO
-        _sharesCount = widget.post.shares; // ✅ CAMBIO
-      });
-      _imagePageController.jumpToPage(0);
+      // 1. LIMPIAR el viejo controller
+      _imagePageController.dispose();
+
+      // 2. CREAR uno nuevo desde cero
+      _imagePageController = PageController();
+
+      // 3. Resetear índice
+      _currentImageIndex = 0;
+
+      // 4. Cargar nueva descripción
       _loadDescription();
+
+      Logger.info(
+        'PageController recreado para nueva mascota: ${widget.post.name}',
+      );
     }
   }
 
   @override
   void dispose() {
-    _imagePageController.dispose();
+    // ✅ FIX: Dispose seguro + limpieza completa
+    if (_imagePageController.hasClients) {
+      _imagePageController.dispose();
+    }
     _commentController.dispose();
+
+    // Limpiar listeners si existen
+    _imagePageController.removeListener(() {});
+
+    _comments.clear();
+
+    Logger.info('PhotoPostWidget disposed: ${widget.post.name}');
     super.dispose();
   }
 
@@ -496,36 +639,31 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                       height: double.infinity,
                       color: Colors.black,
                       child: Center(
-                        child: Image.network(
-                          imageUrls[index], // ✅ CAMBIO: usar imageUrls[index]
+                        child: CachedNetworkImage(
+                          imageUrl: imageUrls[index],
                           fit: BoxFit.contain,
                           width: double.infinity,
                           height: double.infinity,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Color(0xFF7C4C48).withOpacity(0.5),
-                              child: Center(
-                                child: Icon(
-                                  Icons.error,
-                                  color: Colors.white,
-                                  size: 50,
-                                ),
+
+                          // Mientras carga
+                          placeholder: (context, url) => Center(
+                            child: CircularProgressIndicator(
+                              color: AppColors.primary,
+                              strokeWidth: 3,
+                            ),
+                          ),
+
+                          // Si hay error
+                          errorWidget: (context, url, error) => Container(
+                            color: Color(0xFF7C4C48).withOpacity(0.5),
+                            child: Center(
+                              child: Icon(
+                                Icons.error,
+                                color: Colors.white,
+                                size: 50,
                               ),
-                            );
-                          },
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return Center(
-                              child: CircularProgressIndicator(
-                                color: Color(0xFFFE8043),
-                                value:
-                                    loadingProgress.expectedTotalBytes != null
-                                    ? loadingProgress.cumulativeBytesLoaded /
-                                          loadingProgress.expectedTotalBytes!
-                                    : null,
-                              ),
-                            );
-                          },
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -550,8 +688,8 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                 end: Alignment.bottomCenter,
                 colors: [
                   Colors.transparent,
-                  Color(0xFF2A1617).withOpacity(0.3),
-                  Color(0xFF2A1617).withOpacity(0.8),
+                  AppColors.darkBackgroundWithOpacity(0.3), // ✅
+                  AppColors.darkBackgroundWithOpacity(0.8),
                 ],
               ),
             ),
@@ -596,7 +734,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   height: 32,
                   fit: BoxFit.contain,
                 ),
-                label: _formatNumber(widget.post.adopcion),
+                label: Formatters.formatNumber(widget.post.adopcion),
                 onTap: () => _adoptarPost(context),
               ),
               SizedBox(height: 10),
@@ -607,7 +745,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   height: 32,
                   fit: BoxFit.contain,
                 ),
-                label: _formatNumber(widget.post.apoyo), // ✅
+                label: Formatters.formatNumber(widget.post.apoyo), // ✅
                 onTap: () => _apoyarPost(context),
               ),
               SizedBox(height: 10),
@@ -617,9 +755,9 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   width: 55,
                   height: 55,
                   fit: BoxFit.contain,
-                  color: _isLiked ? Color(0xFFB42C1C) : Colors.white,
+                  color: _isLiked ? AppColors.likeActive : AppColors.textWhite,
                 ),
-                label: _formatNumber(_likesCount),
+                label: Formatters.formatNumber(_likesCount),
                 onTap: widget
                     .onLike, // ✅ CAMBIO SIMPLE: Llamar al callback del padre
               ),
@@ -632,7 +770,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   fit: BoxFit.contain,
                   color: Colors.white,
                 ),
-                label: _formatNumber(_commentsCount),
+                label: Formatters.formatNumber(_commentsCount),
                 onTap: () => _showComments(context, widget.post.id), // ✅
               ),
               SizedBox(height: 10),
@@ -644,7 +782,7 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
                   fit: BoxFit.contain,
                   color: Colors.white,
                 ),
-                label: _formatNumber(_sharesCount), // ✅
+                label: Formatters.formatNumber(_sharesCount), // ✅
                 onTap: _sharePostToWhatsApp,
               ),
             ],
@@ -746,14 +884,14 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     );
   }
 
-  String _formatNumber(int number) {
-    if (number >= 1000000) {
-      return '${(number / 1000000).toStringAsFixed(1)}M';
-    } else if (number >= 1000) {
-      return '${(number / 1000).toStringAsFixed(1)}K';
-    }
-    return number.toString();
-  }
+  // String _formatNumber(int number) {
+  //   if (number >= 1000000) {
+  //     return '${(number / 1000000).toStringAsFixed(1)}M';
+  //   } else if (number >= 1000) {
+  //     return '${(number / 1000).toStringAsFixed(1)}K';
+  //   }
+  //   return number.toString();
+  // }
 
   void _showComments(BuildContext context, String petId) {
     showModalBottomSheet(
@@ -901,7 +1039,9 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
     });
 
     try {
-      final comments = await PetService.getComments(petId); // ✅ NUEVO
+      final comments = await PetService.getComments(
+        petId,
+      ).timeout(Duration(seconds: 15));
 
       if (mounted) {
         setState(() {
@@ -909,13 +1049,38 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
           _loadingComments = false;
         });
       }
-    } catch (e) {
-      print('Error cargando comentarios: $e');
+    } on TimeoutException {
+      Logger.warning('Timeout al cargar comentarios');
       if (mounted) {
         setState(() {
           _comments = [];
           _loadingComments = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('La carga está tardando mucho'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      Logger.error('Error cargando comentarios', e);
+      if (mounted) {
+        setState(() {
+          _comments = [];
+          _loadingComments = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudieron cargar los comentarios'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Reintentar',
+              textColor: Colors.white,
+              onPressed: () => _loadComments(petId),
+            ),
+          ),
+        );
       }
     }
   }
@@ -939,25 +1104,20 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
 
     try {
       final result = await PetService.createComment(
-        // ✅ NUEVO
         petId: petId,
         content: content,
-      );
+      ).timeout(Duration(seconds: 15));
 
       if (result['success']) {
         _commentController.clear();
 
-        // ✅ ACTUALIZAR CONTADOR DESDE EL SERVIDOR
         final newCommentsCount = result['commentsCount'] ?? _commentsCount + 1;
 
         setState(() {
           _commentsCount = newCommentsCount;
         });
 
-        // Recargar comentarios
         await _loadComments(petId);
-
-        // ✅ NOTIFICAR AL PADRE PARA ACTUALIZAR EL CACHE
         widget.onCommentAdded?.call();
 
         setModalState(() {});
@@ -977,10 +1137,19 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
           ),
         );
       }
-    } catch (e) {
+    } on TimeoutException {
+      Logger.warning('Timeout al enviar comentario');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error de conexión'),
+          content: Text('La conexión está tardando mucho'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      Logger.error('Error enviando comentario', e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error de conexión. Intenta de nuevo'),
           backgroundColor: Colors.red,
         ),
       );
@@ -1027,50 +1196,63 @@ class _PhotoPostWidgetState extends State<PhotoPostWidget> {
   // ============================================
 
   void _sharePostToWhatsApp() async {
-    try {
+    final imageUrls = widget.post.imageUrls;
+
+    if (imageUrls.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Row(
-            children: [
-              SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(width: 16),
-              TranslatedText('Preparando para compartir...'),
-            ],
-          ),
-          duration: Duration(seconds: 2),
-          backgroundColor: Color(0xFFFE8043),
+          content: Text('No hay imagen para compartir'),
+          backgroundColor: Colors.orange,
         ),
       );
+      return;
+    }
 
-      // ✅ INCREMENTAR CONTADOR EN EL BACKEND
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.white,
+              ),
+            ),
+            SizedBox(width: 16),
+            TranslatedText('Preparando para compartir...'),
+          ],
+        ),
+        duration: Duration(seconds: 2),
+        backgroundColor: Color(0xFFFE8043),
+      ),
+    );
+
+    try {
+      // Incrementar contador
       try {
-        final shareResult = await PetService.incrementShare(widget.post.id);
+        final shareResult = await PetService.incrementShare(
+          widget.post.id,
+        ).timeout(Duration(seconds: 5));
 
         if (shareResult['success']) {
           setState(() {
             _sharesCount = shareResult['shares'] ?? _sharesCount + 1;
           });
+          Logger.success('Share incrementado correctamente');
         }
       } catch (e) {
-        print('Error al incrementar share: $e');
-        // Continuar con el share aunque falle el contador
+        Logger.error('Error al incrementar share', e);
       }
 
-      // Descargar la imagen
-      final imageUrls = widget.post.imageUrls;
-      if (imageUrls.isEmpty) return;
-
-      final response = await http.get(Uri.parse(imageUrls.first));
+      // Descargar imagen con timeout
+      final response = await http
+          .get(Uri.parse(imageUrls.first))
+          .timeout(Duration(seconds: 30));
 
       if (response.statusCode != 200) {
-        throw Exception('Error al descargar imagen');
+        throw Exception('Error al descargar imagen (${response.statusCode})');
       }
 
       final directory = await getTemporaryDirectory();
@@ -1095,13 +1277,32 @@ ${description.length > 100 ? '${description.substring(0, 100)}...' : description
           imageFile.deleteSync();
         }
       });
-    } catch (e) {
-      debugPrint('Error al compartir: $e');
-
+    } on TimeoutException {
+      Logger.warning('Timeout al descargar imagen para compartir');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: TranslatedText('No se pudo compartir. Intenta de nuevo.'),
+            content: Text('La descarga está tardando mucho'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } on SocketException {
+      Logger.error('Sin conexión a internet al compartir');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sin conexión a internet'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error al compartir: e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('No se pudo compartir. Intenta de nuevo'),
             backgroundColor: Colors.red,
           ),
         );
@@ -1119,7 +1320,15 @@ ${description.length > 100 ? '${description.substring(0, 100)}...' : description
   void _adoptarPost(BuildContext context) {
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (context) => CrearScreen()),
+      MaterialPageRoute(
+        builder: (context) => CrearScreen(
+          petId: widget.post.id, // ← AGREGAR
+          petName: widget.post.name, // ← AGREGAR
+          petImage: widget.post.imageUrls.isNotEmpty
+              ? widget.post.imageUrls[0]
+              : null, // ← AGREGAR
+        ),
+      ),
     );
   }
 }
@@ -1254,6 +1463,16 @@ class DiscoverScreen extends StatelessWidget {
 
 //pantalla adoptar
 class CrearScreen extends StatelessWidget {
+  final String? petId; // ← AGREGAR
+  final String? petName; // ← AGREGAR
+  final String? petImage; // ← AGREGAR
+
+  const CrearScreen({
+    Key? key,
+    this.petId, // ← AGREGAR
+    this.petName, // ← AGREGAR
+    this.petImage, // ← AGREGAR
+  }) : super(key: key);
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1263,12 +1482,38 @@ class CrearScreen extends StatelessWidget {
         child: Column(
           children: [
             const SizedBox(height: 36),
+            // ✅ AGREGAR: Mostrar nombre de la mascota si existe
+            if (petName != null) ...[
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryWithOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.pets, color: AppColors.primary),
+                    SizedBox(width: 8),
+                    Text(
+                      'Adoptando a: $petName',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2A1617),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // Logo
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Color(0xFFFE8043).withOpacity(0.1),
+                color: AppColors.primaryWithOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Image.asset(
@@ -1294,7 +1539,7 @@ class CrearScreen extends StatelessWidget {
             Container(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               decoration: BoxDecoration(
-                color: Color(0xFFFE8043),
+                color: AppColors.primary,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: TranslatedText(
@@ -1323,9 +1568,7 @@ class CrearScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF7C4C48), Color(0xFF2A1617)],
-                ),
+                gradient: AppColors.darkGradient,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
@@ -1339,15 +1582,17 @@ class CrearScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _buildBenefit(
-                    '📸 Álbum mensual personalizado de tu ahijado/a',
+                  BenefitItem(
+                    text: '📸 Álbum mensual personalizado de tu ahijado/a',
                   ),
-                  _buildBenefit('🎥 Videos exclusivos de progreso'),
-                  _buildBenefit('📧 Cartas virtuales mensuales'),
-                  _buildBenefit('🏆 Certificado digital de adopción'),
-                  _buildBenefit('💝 Regalo de cumpleaños para tu ahijado/a'),
-                  _buildBenefit('👥 Acceso a grupo VIP de adoptantes'),
-                  _buildBenefit('🎟️ Invitación a eventos especiales'),
+                  BenefitItem(text: '🎥 Videos exclusivos de progreso'),
+                  BenefitItem(text: '📧 Cartas virtuales mensuales'),
+                  BenefitItem(text: '🏆 Certificado digital de adopción'),
+                  BenefitItem(
+                    text: '💝 Regalo de cumpleaños para tu ahijado/a',
+                  ),
+                  BenefitItem(text: '👥 Acceso a grupo VIP de adoptantes'),
+                  BenefitItem(text: '🎟️ Invitación a eventos especiales'),
                 ],
               ),
             ),
@@ -1376,7 +1621,7 @@ class CrearScreen extends StatelessWidget {
             // Planes de suscripción
             _buildPlanCard(
               context: context,
-              priceId: StripeConfig.adoptarGuardian, // ← NUEVO
+              priceId: StripeConfig.adoptarGuardian,
               title: 'Plan Guardián',
               price: '5',
               description: 'Ideal para comenzar',
@@ -1385,13 +1630,15 @@ class CrearScreen extends StatelessWidget {
                 'Fotos exclusivas',
                 'Certificado digital',
               ],
-              color: Color(0xFF9C27B0),
+              color: AppColors.purple,
               isPopular: false,
+              petId: petId, // ← AGREGAR
+              petName: petName, // ← AGREGAR
             ),
 
             _buildPlanCard(
               context: context,
-              priceId: StripeConfig.adoptarProtector, // ← NUEVO
+              priceId: StripeConfig.adoptarProtector,
               title: 'Plan Protector',
               price: '10',
               description: 'El más popular',
@@ -1401,13 +1648,15 @@ class CrearScreen extends StatelessWidget {
                 'Cartas personalizadas',
                 'Acceso grupo VIP',
               ],
-              color: Color(0xFFFE8043),
+              color: AppColors.primary,
               isPopular: true,
+              petId: petId, // ← AGREGAR
+              petName: petName, // ← AGREGAR
             ),
 
             _buildPlanCard(
               context: context,
-              priceId: StripeConfig.adoptarAngel, // ← NUEVO
+              priceId: StripeConfig.adoptarAngel,
               title: 'Plan Ángel',
               price: '20',
               description: 'Máximo impacto',
@@ -1418,8 +1667,10 @@ class CrearScreen extends StatelessWidget {
                 'Visita presencial anual',
                 'Álbum físico de fin de año',
               ],
-              color: Color(0xFFB42C1C),
+              color: AppColors.likeActive,
               isPopular: false,
+              petId: petId, // ← AGREGAR
+              petName: petName, // ← AGREGAR
             ),
 
             const SizedBox(height: 24),
@@ -1487,12 +1738,12 @@ class CrearScreen extends StatelessWidget {
             Container(
               padding: EdgeInsets.all(16),
               decoration: BoxDecoration(
-                border: Border.all(color: Color(0xFFFE8043), width: 2),
+                border: Border.all(color: AppColors.primary, width: 2),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.favorite, color: Color(0xFFB42C1C), size: 32),
+                  Icon(Icons.favorite, color: AppColors.likeActive, size: 32),
                   const SizedBox(height: 8),
                   TranslatedText(
                     'Tu compromiso mensual significa un hogar seguro, comida diaria y atención veterinaria constante.',
@@ -1514,24 +1765,6 @@ class CrearScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBenefit(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(Icons.check_circle, color: Color(0xFFFE8043), size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TranslatedText(
-              text,
-              style: TextStyle(color: Colors.white, fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPlanCard({
     required BuildContext context,
     required String priceId, // Ya no lo usamos, usamos price directamente
@@ -1541,6 +1774,8 @@ class CrearScreen extends StatelessWidget {
     required List<String> benefits,
     required Color color,
     required bool isPopular,
+    String? petId, // ← AGREGAR
+    String? petName,
   }) {
     return Container(
       margin: EdgeInsets.only(bottom: 16),
@@ -1671,6 +1906,7 @@ class CrearScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 // ✅ BOTÓN ACTUALIZADO CON MÉTODO CORRECTO
+                // ✅ BOTÓN CORREGIDO
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -1684,12 +1920,13 @@ class CrearScreen extends StatelessWidget {
                         ),
                       );
 
-                      // ✅ USAR EL MÉTODO CORRECTO
+                      // ✅ UNA SOLA LLAMADA CON petId
                       final result = await PaymentService()
                           .createAdopcionSubscription(
                             context: context,
-                            plan: price, // Usar el monto (5, 10, 20)
+                            plan: price,
                             planName: title,
+                            petId: petId, // ← ESTO ES LO CRÍTICO
                           );
 
                       // Cerrar loading
@@ -1697,6 +1934,11 @@ class CrearScreen extends StatelessWidget {
 
                       // Mostrar resultado
                       PaymentService.showPaymentResult(context, result);
+
+                      // ✅ Si fue exitoso, volver al feed
+                      if (result['success'] == true) {
+                        Navigator.pop(context); // Cerrar pantalla de adopción
+                      }
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: color,
@@ -1737,13 +1979,17 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
 
   @override
   void dispose() {
+    // ✅ FIX: Limpiar texto antes de dispose
+    _amountController.clear();
     _amountController.dispose();
+
+    Logger.info('AdoptarScreen disposed correctamente');
     super.dispose();
   }
 
   Future<void> _processPayment() async {
-    // Validar que haya un monto
     final amountText = _amountController.text.trim();
+
     if (amountText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1754,7 +2000,6 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
       return;
     }
 
-    // Validar que sea un número válido
     final amount = double.tryParse(amountText);
     if (amount == null || amount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1766,7 +2011,6 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
       return;
     }
 
-    // Validar monto mínimo
     if (amount < 0.5) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1780,21 +2024,54 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
     setState(() => _isProcessing = true);
 
     try {
-      // Llamar al servicio de pagos
-      final result = await PaymentService().createOneTimePayment(
-        context: context,
-        amount: amount,
-        description: 'Apoyo a WooHeart - \$$amount USD',
-      );
+      final result = await PaymentService()
+          .createOneTimePayment(
+            context: context,
+            amount: amount,
+            description: 'Apoyo a WooHeart - \$$amount USD',
+          )
+          .timeout(Duration(seconds: 60));
 
-      // Mostrar resultado
       if (mounted) {
         PaymentService.showPaymentResult(context, result);
 
-        // Si fue exitoso, limpiar el campo
         if (result['success'] == true) {
           _amountController.clear();
         }
+      }
+    } on TimeoutException {
+      Logger.warning('Timeout en el pago - Usuario esperó más de 60s');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'El pago está tardando más de lo esperado. '
+              'Revisa tu historial en unos minutos',
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    } on SocketException {
+      Logger.error('Sin conexión durante el pago');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sin conexión a internet'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error en el pago: e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al procesar el pago. Intenta de nuevo'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -1817,7 +2094,7 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
             Container(
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Color(0xFFFE8043).withOpacity(0.1),
+                color: AppColors.primaryWithOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: Image.asset(
@@ -1843,7 +2120,7 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
             Container(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               decoration: BoxDecoration(
-                color: Color(0xFFFE8043),
+                color: AppColors.primary,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: TranslatedText(
@@ -1861,12 +2138,12 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
             Container(
               padding: EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Color(0xFFFE8043).withOpacity(0.1),
+                color: AppColors.primaryWithOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.favorite, color: Color(0xFFB42C1C), size: 40),
+                  Icon(Icons.favorite, color: AppColors.likeActive, size: 40),
                   const SizedBox(height: 12),
                   TranslatedText(
                     '¿Quieres ser parte de esta cadena de amor?',
@@ -1940,7 +2217,7 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: BorderSide(
-                          color: Color(0xFFFE8043),
+                          color: AppColors.primary,
                           width: 2,
                         ),
                       ),
@@ -1952,7 +2229,7 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
                     child: ElevatedButton(
                       onPressed: _isProcessing ? null : _processPayment,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Color(0xFFFE8043),
+                        backgroundColor: AppColors.primary,
                         foregroundColor: Colors.white,
                         padding: EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
@@ -1993,7 +2270,7 @@ class _AdoptarScreenState extends State<AdoptarScreen> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.verified, color: Color(0xFF4CAF50), size: 20),
+                  Icon(Icons.verified, color: AppColors.success, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TranslatedText(
@@ -2384,7 +2661,7 @@ class _InboxScreenState extends State<InboxScreen> {
       ),
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFFFE8043)),
+              child: CircularProgressIndicator(color: AppColors.primary),
             )
           : _conversations.isEmpty
           ? Center(
@@ -2410,7 +2687,7 @@ class _InboxScreenState extends State<InboxScreen> {
               ),
             )
           : RefreshIndicator(
-              color: const Color(0xFFFE8043),
+              color: AppColors.primary,
               onRefresh: () async => _loadConversations(),
               child: ListView.separated(
                 itemCount: _conversations.length,
@@ -2434,7 +2711,7 @@ class _InboxScreenState extends State<InboxScreen> {
                           backgroundImage: NetworkImage(
                             conversation.otherUser.avatar,
                           ),
-                          backgroundColor: const Color(0xFFFE8043),
+                          backgroundColor: AppColors.primary,
                         ),
                         if (conversation.unreadCount > 0)
                           Positioned(
@@ -2503,29 +2780,63 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 }
 
-// Pantalla de Perfil
+// ============================================
+// PANTALLA DE PERFIL CON BADGE PREMIUM
+// ============================================
+
 class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({Key? key}) : super(key: key);
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
 }
 
-class _ProfileScreenState extends State<ProfileScreen> {
+class _ProfileScreenState extends State<ProfileScreen>
+    with AutomaticKeepAliveClientMixin {
   int _selectedTab = 0;
   String _username = 'Usuario';
   String _email = '';
   int _likesCount = 0;
+  int _serverLikesCount = 0;
+
+  // ✅ DATOS DE PAGOS
+  PaymentHistoryData? _paymentHistory;
+  bool _isLoadingPayments = false;
+  String? _paymentError;
+  List<PetModel>? _petsCache;
+  Future<List<PetModel>>? _petsFuture;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _loadLikesCount();
+    _loadServerLikesCount();
+    _loadPaymentHistory();
+    likeNotifier.addListener(_loadLikesCount);
   }
 
   @override
-  void didUpdateWidget(ProfileScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _loadLikesCount();
+  bool get wantKeepAlive => true;
+
+  // @override
+  // void didUpdateWidget(ProfileScreen oldWidget) {
+  //   super.didUpdateWidget(oldWidget);
+  //   _loadLikesCount();
+  // }
+
+  @override
+  void dispose() {
+    // ✅ REMOVER LISTENER
+    likeNotifier.removeListener(_loadLikesCount);
+
+    // ✅ LIMPIAR CACHE DE MASCOTAS
+    _petsCache?.clear();
+
+    // ✅ CANCELAR FUTURE EN PROGRESO (si existe)
+    _petsFuture = null;
+
+    Logger.info('ProfileScreen disposed correctamente');
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
@@ -2539,51 +2850,260 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadLikesCount() async {
     try {
       final posts = await PetService.fetchPets();
-      final totalLikes = posts.where((post) => post.isLiked).length; // ✅ CAMBIO
+      final totalLikes = posts.where((post) => post.isLiked).length;
 
-      setState(() {
-        _likesCount = totalLikes;
-      });
+      if (mounted) {
+        setState(() {
+          _likesCount = totalLikes;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _likesCount = 0;
+        });
+      }
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Cargar likes desde el servidor
+  Future<void> _loadServerLikesCount() async {
+    try {
+      final likedPets = await PetService.fetchLikedPets();
+
+      if (mounted) {
+        setState(() {
+          _serverLikesCount = likedPets.length;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _serverLikesCount = 0;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadPaymentHistory() async {
+    setState(() {
+      _isLoadingPayments = true;
+      _paymentError = null;
+    });
+
+    try {
+      final result = await PaymentHistoryService().getPaymentHistory();
+
+      if (result['success']) {
+        setState(() {
+          _paymentHistory = result['data'] as PaymentHistoryData?;
+          _isLoadingPayments = false;
+        });
+      } else {
+        setState(() {
+          _paymentError = result['message'];
+          _isLoadingPayments = false;
+        });
+      }
     } catch (e) {
       setState(() {
-        _likesCount = 0;
+        _paymentError = 'Error al cargar historial';
+        _isLoadingPayments = false;
       });
     }
   }
 
+  // ✅ NUEVO: Cargar mascotas UNA SOLA VEZ
+  Future<void> _loadPetsOnce() async {
+    // Si ya están cargadas, no hacer nada
+    if (_petsCache != null) return;
+
+    // Si ya hay una carga en proceso, esperar
+    if (_petsFuture != null) {
+      await _petsFuture;
+      return;
+    }
+
+    // Iniciar carga
+    _petsFuture = PetService.fetchPets();
+
+    try {
+      final pets = await _petsFuture!;
+      if (mounted) {
+        setState(() {
+          _petsCache = pets;
+        });
+        Logger.success('Mascotas cargadas en ProfileScreen: ${pets.length}');
+      }
+    } catch (e) {
+      Logger.error('Error cargando mascotas en ProfileScreen', e);
+      if (mounted) {
+        setState(() {
+          _petsCache = []; // Lista vacía para evitar reintentos infinitos
+        });
+      }
+    }
+  }
+
+  // ✅ NUEVO: Determinar si el usuario es premium
+  bool get _isPremium {
+    if (_paymentHistory == null) return false;
+    return _paymentHistory!.hasActiveSubscription ||
+        _paymentHistory!.hasAdoptions;
+  }
+
+  // ✅ NUEVO: Obtener el plan más alto activo
+  String get _premiumPlanName {
+    if (_paymentHistory == null) return '';
+
+    // Prioridad: Adopciones > Suscripción General
+    if (_paymentHistory!.hasAdoptions) {
+      final activeAdoptions = _paymentHistory!.adoptions
+          .where((a) => a.isActive)
+          .toList();
+
+      if (activeAdoptions.isNotEmpty) {
+        // Buscar el plan más alto
+        activeAdoptions.sort(
+          (a, b) => int.parse(b.plan).compareTo(int.parse(a.plan)),
+        );
+        return activeAdoptions.first.planName;
+      }
+    }
+
+    if (_paymentHistory!.hasActiveSubscription) {
+      return _paymentHistory!.generalSubscription!.planName;
+    }
+
+    return '';
+  }
+
+  // ✅ NUEVO: Obtener icono del plan
+  String get _premiumIcon {
+    if (_paymentHistory == null) return '';
+
+    if (_paymentHistory!.hasAdoptions) {
+      return '🐾'; // Icono para adopciones
+    }
+
+    if (_paymentHistory!.hasActiveSubscription) {
+      return '⭐'; // Icono para suscripciones
+    }
+
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    super.build(context); // ← AGREGAR ESTA LÍNEA (CRÍTICO)
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: () async {
           await _loadLikesCount();
+          await _loadServerLikesCount();
+          await _loadPaymentHistory();
         },
         child: Column(
           children: [
-            // Header del perfil
+            // Header del perfil con badge premium
             Container(
               padding: EdgeInsets.all(30),
+              decoration: _isPremium
+                  ? BoxDecoration(gradient: AppColors.premiumBackgroundGradient)
+                  : null,
               child: Column(
                 children: [
                   SizedBox(height: 36),
-                  Icon(
-                    Icons.person_outline_outlined,
-                    color: Colors.black,
-                    size: 50,
+
+                  // Avatar con badge premium
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        Icons.person_outline_outlined,
+                        color: Colors.black,
+                        size: 50,
+                      ),
+
+                      // ✅ BADGE PREMIUM
+                      if (_isPremium)
+                        Positioned(
+                          right: -8,
+                          top: -8,
+                          child: Container(
+                            padding: EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              gradient: AppColors.premiumGradient,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.gold.withOpacity(0.5),
+                                  blurRadius: 8,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Icon(
+                              Icons.verified,
+                              color: Colors.white,
+                              size: 16,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
+
                   SizedBox(height: 16),
 
+                  // Username
                   Text(
-                    '$_username', // ← Username NO se traduce (es nombre propio)
+                    '$_username',
                     style: TextStyle(
                       color: Colors.black,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+
                   SizedBox(height: 8),
 
-                  // ✅ TEXTO TRADUCIDO
+                  // ✅ BADGE DE PLAN PREMIUM
+                  if (_isPremium)
+                    Container(
+                      margin: EdgeInsets.only(bottom: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: AppColors.premiumGradient,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.gold.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(_premiumIcon, style: TextStyle(fontSize: 14)),
+                          SizedBox(width: 6),
+                          Text(
+                            _premiumPlanName,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Descripción
                   TranslatedText(
                     'Amante de los animales 🐶',
                     style: TextStyle(
@@ -2592,26 +3112,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
 
                   SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _buildStatColumn('456', '🐕‍🦺 Apoyos'),
-                      _buildStatColumn('$_likesCount', '🫶 Me encanta'),
-                    ],
-                  ),
+
+                  // Estadísticas
+                  _buildStatsRow(),
                   SizedBox(height: 18),
-                  TranslatedText(
-                    '🌟 "¿Listo para marcar la diferencia? Con [Monto]/mes apoyás a quien más lo necesita.\n',
-                    style: TextStyle(
-                      color: const Color.fromARGB(255, 75, 75, 75),
-                    ),
-                  ),
-                  TranslatedText(
-                    'Recibirás una tarjeta de impacto mensual con lo que ayudaste\n❤️ Tu aporte cambia vidas.\n¡Sumate Hoy!',
-                    style: TextStyle(
-                      color: const Color.fromARGB(255, 75, 75, 75),
-                    ),
-                  ),
+
+                  // Mensaje motivacional (cambia si es premium)
+                  _isPremium
+                      ? TranslatedText(
+                          '💫 ¡Gracias por ser parte de nuestra familia premium!\nTu apoyo está cambiando vidas. 🙏',
+                          style: TextStyle(
+                            color: const Color.fromARGB(255, 75, 75, 75),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.justify,
+                        )
+                      : TranslatedText(
+                          '🌟 "¿Listo para marcar la diferencia? Con [Monto]/mes apoyás a quien más lo necesita.\nRecibirás una tarjeta de impacto mensual con lo que ayudaste ❤️ Tu aporte cambia vidas.\n¡Sumate Hoy!',
+                          style: TextStyle(
+                            color: const Color.fromARGB(255, 75, 75, 75),
+                          ),
+                          textAlign: TextAlign.justify,
+                        ),
                 ],
               ),
             ),
@@ -2633,6 +3155,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     label: 'Apoyo',
                   ),
                   _buildCategoryButton(
+                    index: 2,
+                    icon: Icons.star,
+                    label: 'Suscripción',
+                  ),
+                  _buildCategoryButton(
                     index: 4,
                     icon: Icons.thumb_up,
                     label: 'Likes',
@@ -2641,97 +3168,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
 
-            // Grid de posts del usuario
-            Expanded(
-              child: _selectedTab == 4
-                  ? FutureBuilder<List<PetModel>>(
-                      future: PetService.fetchPets(),
-                      builder: (context, snapshot) {
-                        if (snapshot.connectionState ==
-                            ConnectionState.waiting) {
-                          return Center(
-                            child: CircularProgressIndicator(
-                              color: Color(0xFFFE8043),
-                            ),
-                          );
-                        }
-
-                        if (!snapshot.hasData) {
-                          return Center(
-                            child: TranslatedText('No hay posts disponibles'),
-                          );
-                        }
-
-                        final likedPosts = snapshot.data!
-                            .where((post) => post.isLiked) // ✅ CAMBIO
-                            .toList();
-
-                        if (likedPosts.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.favorite_border,
-                                  size: 60,
-                                  color: Colors.grey,
-                                ),
-                                SizedBox(height: 16),
-                                TranslatedText('Aún no tienes posts favoritos'),
-                              ],
-                            ),
-                          );
-                        }
-
-                        return GridView.builder(
-                          padding: EdgeInsets.all(2),
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
-                                crossAxisSpacing: 2,
-                                mainAxisSpacing: 2,
-                              ),
-                          itemCount: likedPosts.length,
-                          itemBuilder: (context, index) {
-                            return Image.network(
-                              likedPosts[index].imageUrls[0], // ✅ CAMBIO
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Container(
-                                  color: Colors.grey[800],
-                                  child: Icon(Icons.error, color: Colors.white),
-                                );
-                              },
-                            );
-                          },
-                        );
-                      },
-                    )
-                  : GridView.builder(
-                      padding: EdgeInsets.all(2),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 2,
-                        mainAxisSpacing: 2,
-                      ),
-                      itemCount: _getItemCount(),
-                      itemBuilder: (context, index) {
-                        return Container(
-                          color: Colors.grey[800],
-                          child: Center(
-                            child: Icon(
-                              Icons.image,
-                              color: Colors.white,
-                              size: 30,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
+            Expanded(child: _buildTabContent()),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildStatColumn(String number, String label) {
+    return Column(
+      children: [
+        Text(
+          number,
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        TranslatedText(
+          label,
+          style: TextStyle(color: Colors.grey, fontSize: 14),
+        ),
+      ],
     );
   }
 
@@ -2754,7 +3213,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Container(
             padding: EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: isSelected ? Color(0xFFFE8043) : Colors.grey[300],
+              color: isSelected ? AppColors.primary : Colors.grey[300],
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -2764,13 +3223,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
           SizedBox(height: 4),
-          // ✅ CAMBIO: Usar TranslatedText aquí
           TranslatedText(
             label,
             style: TextStyle(
               fontSize: 10,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-              color: isSelected ? Color(0xFFFE8043) : Colors.grey[600],
+              color: isSelected ? AppColors.primary : Colors.grey[600],
             ),
           ),
         ],
@@ -2778,41 +3236,774 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  int _getItemCount() {
+  // ============================================
+  // ✅ NUEVO: Stats con iconos y mejor diseño
+  // ============================================
+  Widget _buildStatsRow() {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          // Adoptados
+          _buildStatCard(
+            icon: Icons.pets,
+            iconColor: AppColors.primary,
+            count: '${_paymentHistory?.adoptions.length ?? 0}',
+            label: 'Adoptados',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => AdoptedPetsScreen()),
+              ).then((_) {
+                if (mounted) {
+                  _loadPaymentHistory();
+                }
+              });
+            },
+          ),
+
+          // Divider vertical
+          Container(height: 50, width: 1, color: Colors.grey[300]),
+
+          // ✅ NUEVO: Apoyos
+          _buildStatCard(
+            icon: Icons.volunteer_activism,
+            iconColor: Colors.purple,
+            count: '${_paymentHistory?.donations.length ?? 0}',
+            label: 'Apoyos',
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => SupportedPetsScreen()),
+              ).then((_) {
+                if (mounted) {
+                  _loadPaymentHistory();
+                }
+              });
+            },
+          ),
+
+          // Divider vertical
+          Container(height: 50, width: 1, color: Colors.grey[300]),
+
+          // Me encanta
+          _buildStatCard(
+            icon: Icons.favorite,
+            iconColor: AppColors.likeActive,
+            count: '$_serverLikesCount',
+            label: 'Me encanta',
+            onTap: () {
+              setState(() => _selectedTab = 4);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required IconData icon,
+    required Color iconColor,
+    required String count,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 10,
+        ), // ✅ REDUCIDO de 24/12 a 16/10
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: iconColor, size: 18), // ✅ REDUCIDO de 20 a 18
+                SizedBox(width: 4), // ✅ REDUCIDO de 6 a 4
+                Text(
+                  count,
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 20, // ✅ REDUCIDO de 24 a 20
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 2), // ✅ REDUCIDO de 4 a 2
+            TranslatedText(
+              label,
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 11, // ✅ REDUCIDO de 12 a 11<
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabContent() {
     switch (_selectedTab) {
       case 0:
-        return 15; // Todos
+        return _buildAdoptedPetsTab();
       case 1:
-        return 8; // Ahijados
+        return _buildDonationsTab();
       case 2:
-        return 5; // Adoptados
-      case 3:
-        return 12; // Apoyo
+        return _buildSubscriptionTab();
       case 4:
-        return 20; // Likes
+        return _buildLikesTab();
       default:
-        return 0;
+        return Center(child: Text('Pestaña no implementada'));
     }
   }
 
-  Widget _buildStatColumn(String number, String label) {
-    return Column(
-      children: [
-        Text(
-          number,
-          style: TextStyle(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+  Widget _buildAdoptedPetsTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            Text('Error: $_paymentError'),
+          ],
+        ),
+      );
+    }
+
+    final adoptions = _paymentHistory?.adoptions ?? [];
+
+    // ✅ MOSTRAR INFO DE DEBUG
+    print('🔍 Total adoptions: ${adoptions.length}');
+    print('🔍 Payment history: $_paymentHistory');
+    print('🔍 Adoptions data: $adoptions');
+
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '${adoptions.length}',
+            style: TextStyle(
+              fontSize: 25,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primary,
+            ),
+          ),
+          SizedBox(height: 8),
+          TranslatedText(
+            adoptions.length == 1 ? 'Mascota Adoptada' : 'Mascotas Adoptadas',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+
+          // ✅ MOSTRAR INFO DE DEBUG EN PANTALLA
+          SizedBox(height: 10),
+
+          if (adoptions.isEmpty) ...[
+            SizedBox(height: 16),
+            TranslatedText(
+              'Haz una adopción para ver tus mascotas aquí',
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 16),
+            // ✅ BOTÓN PARA PROBAR LA LLAMADA AL BACKEND
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  final pets = await PetService.fetchAdoptedPets();
+                  print('✅ Mascotas desde backend: ${pets.length}');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Backend retornó: ${pets.length} mascotas'),
+                    ),
+                  );
+                } catch (e) {
+                  print('❌ Error: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              },
+              child: Text('Probar Endpoint'),
+            ),
+          ] else ...[
+            // SizedBox(height: 32),
+            // ElevatedButton.icon(
+            //   onPressed: () {
+            //     Navigator.push(
+            //       context,
+            //       MaterialPageRoute(builder: (context) => AdoptedPetsScreen()),
+            //     );
+            //   },
+            //   icon: Icon(Icons.grid_view, color: Colors.white),
+            //   label: Text('Ver Galería', style: TextStyle(color: Colors.white)),
+            //   // style: ElevatedButton.styleFrom(
+            //   //   backgroundColor: AppColors.primary,
+            //   //   padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            //   // ),
+            // ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ✅ NUEVO: Card de adopción con galería de fotos
+  Widget _buildAdoptionCard(AdoptionInfo adoption, PetModel pet) {
+    return Card(
+      margin: EdgeInsets.only(bottom: 20),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 3,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header con info del plan
+          Container(
+            padding: EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryWithOpacity(0.8)],
+              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(Icons.favorite, color: Colors.white, size: 24),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        adoption.planName,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      Text(
+                        adoption.formattedAmount,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.9),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: adoption.isActive ? Colors.green : Colors.grey,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    adoption.statusText,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Nombre de la mascota
+          Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Icon(Icons.pets, color: AppColors.primary, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  pet.name,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+
+          // ✅ GALERÍA DE FOTOS
+          if (pet.imageUrls.isNotEmpty)
+            Container(
+              height: 200,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                itemCount: pet.imageUrls.length,
+                itemBuilder: (context, photoIndex) {
+                  return GestureDetector(
+                    onTap: () {
+                      // Abrir modal con foto ampliada
+                      _showPhotoModal(context, pet, photoIndex);
+                    },
+                    child: Container(
+                      width: 160,
+                      margin: EdgeInsets.only(right: 12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black26,
+                            blurRadius: 8,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            CachedNetworkImage(
+                              imageUrl: pet.imageUrls[photoIndex],
+                              fit: BoxFit.cover,
+
+                              placeholder: (context, url) => Container(
+                                color: Colors.grey[200],
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppColors.primary,
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              ),
+
+                              errorWidget: (context, url, error) => Container(
+                                color: Colors.grey[300],
+                                child: Icon(
+                                  Icons.image_not_supported,
+                                  color: Colors.grey[600],
+                                  size: 50,
+                                ),
+                              ),
+                            ),
+                            // Overlay para indicar que se puede tocar
+                            Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withOpacity(0.3),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              bottom: 8,
+                              right: 8,
+                              child: Container(
+                                padding: EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.5),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Icon(
+                                  Icons.zoom_in,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+
+          // Info adicional
+          Padding(
+            padding: EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Divider(),
+                SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Desde',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        Text(
+                          adoption.formattedStartDate,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (adoption.isActive && adoption.nextPayment != null)
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            'Próximo pago',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                          Text(
+                            adoption.formattedNextPayment,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ NUEVO: Modal para mostrar foto ampliada
+  void _showPhotoModal(BuildContext context, PetModel pet, int initialIndex) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.zero,
+        child: Stack(
+          children: [
+            // Carrusel de fotos
+            Center(
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.7,
+                child: PageView.builder(
+                  controller: PageController(initialPage: initialIndex),
+                  itemCount: pet.imageUrls.length,
+                  itemBuilder: (context, index) {
+                    return Center(
+                      child: InteractiveViewer(
+                        minScale: 0.5,
+                        maxScale: 4.0,
+                        child: CachedNetworkImage(
+                          imageUrl: pet.imageUrls[index],
+                          fit: BoxFit.contain,
+
+                          placeholder: (context, url) => Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFFFE8043),
+                            ),
+                          ),
+
+                          errorWidget: (context, url, error) =>
+                              Icon(Icons.error, color: Colors.white, size: 60),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+
+            // Botón de cerrar
+            Positioned(
+              top: 40,
+              right: 20,
+              child: GestureDetector(
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  padding: EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.close, color: Colors.white, size: 24),
+                ),
+              ),
+            ),
+
+            // Nombre de la mascota
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                margin: EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  pet.name,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDonationsTab() {
+    // Navegar automáticamente cuando se selecciona el tab
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => SupportedPetsScreen()),
+      ).then((_) {
+        // Al volver, recargar y cambiar tab
+        if (mounted) {
+          _loadPaymentHistory();
+          setState(() {
+            _selectedTab = 0; // Volver a Inicio
+          });
+        }
+      });
+    });
+
+    // Mostrar loading mientras navega
+    return Center(child: CircularProgressIndicator(color: AppColors.primary));
+  }
+
+  Widget _buildSubscriptionTab() {
+    if (_isLoadingPayments) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
+    }
+
+    if (_paymentError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 60),
+            SizedBox(height: 16),
+            TranslatedText(
+              'Error al cargar suscripción',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            Text(
+              _paymentError!,
+              style: TextStyle(color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final subscription = _paymentHistory?.generalSubscription;
+
+    if (subscription == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.star_outline, size: 60, color: Colors.grey),
+            SizedBox(height: 16),
+            TranslatedText(
+              'No tienes una suscripción activa',
+              style: TextStyle(fontSize: 16),
+            ),
+            SizedBox(height: 8),
+            TranslatedText(
+              'Suscríbete para apoyar mensualmente',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [AppColors.primary, AppColors.primaryWithOpacity(0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.star, color: Colors.white, size: 48),
+                SizedBox(height: 16),
+                TranslatedText(
+                  'Plan Activo',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  subscription.planName,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  subscription.formattedAmount,
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+                SizedBox(height: 24),
+                Divider(color: Colors.white.withOpacity(0.3)),
+                SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Desde',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedStartDate,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Próximo cargo',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 12,
+                          ),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          subscription.formattedNextPayment,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: subscription.isActive
+                        ? Colors.white.withOpacity(0.2)
+                        : Colors.red.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    subscription.statusText,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        // ✅ CAMBIO: Usar TranslatedText aquí también
-        TranslatedText(
-          label,
-          style: TextStyle(color: Colors.grey, fontSize: 14),
-        ),
-      ],
+      ),
     );
+  }
+
+  Widget _buildLikesTab() {
+    // Navegar automáticamente cuando se selecciona el tab
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => LikesScreen()),
+      ).then((_) {
+        // Al volver, recargar el contador y cambiar tab
+        if (mounted) {
+          _loadServerLikesCount(); // ✅ AGREGAR ESTA LÍNEA
+          setState(() {
+            _selectedTab = 0; // Volver a Inicio
+          });
+        }
+      });
+    });
+
+    // Mostrar loading mientras navega
+    return Center(child: CircularProgressIndicator(color: Color(0xFFFE8043)));
   }
 }
 
@@ -3041,7 +4232,7 @@ class _AccountScreenState extends State<AccountScreen> {
         actions: [
           if (!_isEditing)
             IconButton(
-              icon: Icon(Icons.edit, color: Color(0xFFFE8043)),
+              icon: Icon(Icons.edit, color: AppColors.primary),
               onPressed: () => setState(() => _isEditing = true),
             ),
         ],
@@ -3062,7 +4253,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       child: Icon(
                         Icons.person,
                         size: 60,
-                        color: Color(0xFFFE8043),
+                        color: AppColors.primary,
                       ),
                     ),
                     if (_isEditing)
@@ -3071,7 +4262,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         right: 0,
                         child: CircleAvatar(
                           radius: 20,
-                          backgroundColor: Color(0xFFFE8043),
+                          backgroundColor: AppColors.primary,
                           child: IconButton(
                             icon: Icon(Icons.camera_alt, size: 20),
                             color: Colors.white,
@@ -3093,13 +4284,13 @@ class _AccountScreenState extends State<AccountScreen> {
                 enabled: _isEditing,
                 decoration: InputDecoration(
                   label: TranslatedText('Nombre completo'),
-                  prefixIcon: Icon(Icons.person, color: Color(0xFFFE8043)),
+                  prefixIcon: Icon(Icons.person, color: AppColors.primary),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Color(0xFFFE8043), width: 2),
+                    borderSide: BorderSide(color: AppColors.primary, width: 2),
                   ),
                 ),
                 validator: (value) {
@@ -3119,7 +4310,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   label: TranslatedText('Correo electrónico'),
-                  prefixIcon: Icon(Icons.email, color: Color(0xFFFE8043)),
+                  prefixIcon: Icon(Icons.email, color: AppColors.primary),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -3218,7 +4409,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                leading: Icon(Icons.lock, color: Color(0xFFFE8043)),
+                leading: Icon(Icons.lock, color: AppColors.primary),
                 title: TranslatedText('Cambiar contraseña'),
                 trailing: Icon(Icons.arrow_forward_ios, size: 16),
                 onTap: () {
@@ -3238,9 +4429,17 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   void dispose() {
-    _nombreController.dispose();
-    _emailController.dispose();
+    // ✅ FIX: Limpiar + dispose en orden inverso
+    _celularController.clear();
     _celularController.dispose();
+
+    _emailController.clear();
+    _emailController.dispose();
+
+    _nombreController.clear();
+    _nombreController.dispose();
+
+    Logger.info('AccountScreen disposed correctamente');
     super.dispose();
   }
 }
@@ -3363,7 +4562,7 @@ class _CambiarPasswordDialogState extends State<_CambiarPasswordDialog> {
               ),
             );
           },
-          style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFFE8043)),
+          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
           child: TranslatedText(
             'Cambiar',
             style: TextStyle(color: Colors.white),
@@ -3436,7 +4635,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               subtitle: TranslatedText('Recibir todas las notificaciones'),
-              activeColor: Color(0xFFFE8043),
+              activeColor: AppColors.primary,
             ),
           ),
 
@@ -3545,7 +4744,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       child: SwitchListTile(
         value: value,
         onChanged: onChanged,
-        secondary: Icon(icon, color: Color(0xFFFE8043)),
+        secondary: Icon(icon, color: AppColors.primary),
         title: TranslatedText(title),
         subtitle: TranslatedText(subtitle),
         activeColor: Color(0xFFFE8043),
@@ -3590,13 +4789,13 @@ class HelpScreen extends StatelessWidget {
                 Container(
                   padding: EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: Color(0xFFFE8043).withOpacity(0.1),
+                    color: AppColors.primaryWithOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     Icons.support_agent,
                     size: 60,
-                    color: Color(0xFFFE8043),
+                    color: AppColors.primary,
                   ),
                 ),
                 SizedBox(height: 16),
@@ -3630,7 +4829,7 @@ class HelpScreen extends StatelessWidget {
           // Email
           _buildContactCard(
             icon: Icons.email,
-            iconColor: Color(0xFFFE8043),
+            iconColor: AppColors.primary,
             title: 'Correo electrónico',
             subtitle: email,
             onTap: () => _abrirEmail(email),
@@ -3773,6 +4972,16 @@ class _LiveChatScreenState extends State<LiveChatScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    // ✅ LIMPIAR CONTROLLER Y MENSAJES
+    _mensajeController.dispose();
+    _mensajes.clear();
+
+    Logger.info('LiveChatScreen disposed correctamente');
+    super.dispose();
+  }
+
   void _enviarMensaje() {
     if (_mensajeController.text.trim().isEmpty) return;
 
@@ -3803,7 +5012,7 @@ class _LiveChatScreenState extends State<LiveChatScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        backgroundColor: Color(0xFFFE8043),
+        backgroundColor: AppColors.primary,
         title: TranslatedText(
           'Chat en vivo',
           style: TextStyle(color: Colors.white),
@@ -3872,7 +5081,7 @@ class _LiveChatScreenState extends State<LiveChatScreen> {
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         decoration: BoxDecoration(
-          color: esUsuario ? Color(0xFFFE8043) : Colors.white,
+          color: esUsuario ? AppColors.primary : AppColors.textWhite,
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
@@ -3905,58 +5114,3 @@ class _LiveChatScreenState extends State<LiveChatScreen> {
     );
   }
 }
-
-// Modelo de datos para los posts
-// class PhotoPost {
-//   final String id;
-//   final String username;
-//   final String description;
-//   final List<String> imageUrls; // <- CAMBIÓ: ahora es lista
-//   final String species; // <- NUEVO
-//   final String breed; // <- NUEVO
-//   final int age; // <- NUEVO
-//   final String adoptionStatus; // <- NUEVO
-//   int adopcion;
-//   int apoyo;
-//   int likes;
-//   int comments;
-//   final int shares;
-//   bool isLiked;
-
-//   PhotoPost({
-//     required this.id,
-//     required this.username,
-//     required this.description,
-//     required this.imageUrls, // <- CAMBIÓ
-//     required this.species,
-//     required this.breed,
-//     required this.age,
-//     required this.adoptionStatus,
-//     required this.adopcion,
-//     required this.apoyo,
-//     required this.likes,
-//     required this.comments,
-//     required this.shares,
-//     this.isLiked = false,
-//   });
-
-//   // Constructor para crear PhotoPost desde JSON del API
-//   factory PhotoPost.fromJson(Map<String, dynamic> json) {
-//     return PhotoPost(
-//       id: json['_id'] ?? '',
-//       username: json['name'] ?? 'Sin nombre',
-//       description: json['description'] ?? 'Sin descripción',
-//       imageUrls: List<String>.from(json['imageUrls'] ?? []),
-//       species: json['species'] ?? 'unknown',
-//       breed: json['breed'] ?? 'unknown',
-//       age: json['age'] ?? 0,
-//       adoptionStatus: json['adoptionStatus'] ?? 'available',
-//       adopcion: 0,
-//       apoyo: 0,
-//       likes: 0,
-//       comments: 0,
-//       shares: 0,
-//       isLiked: false,
-//     );
-//   }
-// }

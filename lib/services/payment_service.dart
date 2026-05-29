@@ -5,15 +5,14 @@ import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 
 class PaymentService {
-  static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
+  static const String baseUrl = 'https://wooheartc-back-zz5h.onrender.com/api/v1';
 
-  // Singleton
   static final PaymentService _instance = PaymentService._internal();
   factory PaymentService() => _instance;
   PaymentService._internal();
 
   // ============================================
-  // PAGO ÚNICO - APOYO (AdoptarScreen)
+  // PAGO ÚNICO - APOYO
   // ============================================
   Future<Map<String, dynamic>> createOneTimePayment({
     required BuildContext context,
@@ -21,12 +20,10 @@ class PaymentService {
     required String description,
   }) async {
     try {
-      // 1. Validar monto mínimo ($1 según backend)
       if (amount < 1) {
         return {'success': false, 'message': 'El monto mínimo es \$1.00 USD'};
       }
 
-      // 2. Obtener token del usuario
       final token = AuthService().token;
       if (token == null) {
         return {
@@ -35,8 +32,6 @@ class PaymentService {
         };
       }
 
-      // 3. Crear Payment Intent en el backend
-      // ✅ CAMBIO: Ruta correcta del backend
       final response = await http
           .post(
             Uri.parse('$baseUrl/payments/apoyo'),
@@ -44,9 +39,7 @@ class PaymentService {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',
             },
-            body: jsonEncode({
-              'amount': amount, // El backend espera amount en USD
-            }),
+            body: jsonEncode({'amount': amount}),
           )
           .timeout(Duration(seconds: 15));
 
@@ -61,16 +54,19 @@ class PaymentService {
 
       final clientSecret = data['data']['clientSecret'];
 
-      // 4. Inicializar el Payment Sheet
+      // ✅ Para pagos únicos usamos paymentIntentClientSecret
       await Stripe.instance.initPaymentSheet(
         paymentSheetParameters: SetupPaymentSheetParameters(
           merchantDisplayName: 'WooHeart',
           paymentIntentClientSecret: clientSecret,
           style: ThemeMode.light,
+          billingDetails: BillingDetails(
+            email: AuthService().email,
+            name: AuthService().username,
+          ),
         ),
       );
 
-      // 5. Mostrar el Payment Sheet
       await Stripe.instance.presentPaymentSheet();
 
       return {
@@ -83,19 +79,21 @@ class PaymentService {
       }
       return {
         'success': false,
-        'message': 'Error: ${e.error.localizedMessage ?? "Error desconocido"}',
+        'message':
+            'Error de Stripe: ${e.error.localizedMessage ?? "Error desconocido"}',
       };
     } catch (e) {
+      print('❌ Error en pago único: $e');
       return {'success': false, 'message': 'Error de conexión: $e'};
     }
   }
 
   // ============================================
-  // SUSCRIPCIÓN MENSUAL - SUSCRIBIR (SuscScreen)
+  // SUSCRIPCIÓN MENSUAL - SUSCRIBIR
   // ============================================
   Future<Map<String, dynamic>> createSuscripcionSubscription({
     required BuildContext context,
-    required String plan, // '5', '10', '60', '150'
+    required String plan,
     required String planName,
   }) async {
     try {
@@ -107,7 +105,8 @@ class PaymentService {
         };
       }
 
-      // ✅ RUTA CORRECTA + BODY CORRECTO
+      print('🔵 Iniciando suscripción - Plan: $plan');
+
       final response = await http
           .post(
             Uri.parse('$baseUrl/payments/suscripcion'),
@@ -115,11 +114,12 @@ class PaymentService {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',
             },
-            body: jsonEncode({
-              'plan': plan, // Backend espera: '5', '10', '60', '150'
-            }),
+            body: jsonEncode({'plan': plan}),
           )
           .timeout(Duration(seconds: 15));
+
+      print('🔵 Status code: ${response.statusCode}');
+      print('🔵 Response body: ${response.body}');
 
       final data = jsonDecode(response.body);
 
@@ -132,43 +132,57 @@ class PaymentService {
 
       final clientSecret = data['data']['clientSecret'];
 
-      // Inicializar Payment Sheet para suscripción
+      print('🔵 Client secret recibido: ${clientSecret.substring(0, 20)}...');
+
+      // ✅ CRÍTICO: Para suscripciones con PaymentIntent inicial
       await Stripe.instance.initPaymentSheet(
         paymentSheetParameters: SetupPaymentSheetParameters(
           merchantDisplayName: 'WooHeart',
-          paymentIntentClientSecret: clientSecret,
+          paymentIntentClientSecret:
+              clientSecret, // ✅ Tu backend usa PaymentIntent
           style: ThemeMode.light,
+          billingDetails: BillingDetails(
+            email: AuthService().email,
+            name: AuthService().username,
+          ),
         ),
       );
 
-      // Mostrar Payment Sheet
+      print('🔵 Payment sheet inicializado');
+
       await Stripe.instance.presentPaymentSheet();
+
+      print('🔵 Payment sheet completado exitosamente');
 
       return {
         'success': true,
         'message': '¡Suscripción activada! Bienvenido a $planName 🎉',
       };
     } on StripeException catch (e) {
+      print('❌ StripeException: ${e.error.code} - ${e.error.localizedMessage}');
+
       if (e.error.code == FailureCode.Canceled) {
         return {'success': false, 'message': 'Suscripción cancelada'};
       }
       return {
         'success': false,
-        'message': 'Error: ${e.error.localizedMessage ?? "Error desconocido"}',
+        'message':
+            'Error de Stripe: ${e.error.localizedMessage ?? "Error desconocido"}',
       };
     } catch (e) {
+      print('❌ Error general en suscripción: $e');
       return {'success': false, 'message': 'Error de conexión: $e'};
     }
   }
 
   // ============================================
-  // ADOPCIÓN MENSUAL - ADOPTAR (CrearScreen)
+  // ADOPCIÓN MENSUAL - ADOPTAR
   // ============================================
   Future<Map<String, dynamic>> createAdopcionSubscription({
     required BuildContext context,
-    required String plan, // '5', '10', '20'
+    required String plan,
     required String planName,
-    String? petId, // Opcional: ID de la mascota
+    String? petId,
   }) async {
     try {
       final token = AuthService().token;
@@ -179,7 +193,8 @@ class PaymentService {
         };
       }
 
-      // ✅ RUTA CORRECTA + BODY CORRECTO
+      print('🟢 Iniciando adopción - Plan: $plan, PetId: $petId');
+
       final response = await http
           .post(
             Uri.parse('$baseUrl/payments/adopcion'),
@@ -187,12 +202,12 @@ class PaymentService {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $token',
             },
-            body: jsonEncode({
-              'plan': plan, // Backend espera: '5', '10', '20'
-              if (petId != null) 'petId': petId,
-            }),
+            body: jsonEncode({'plan': plan, if (petId != null) 'petId': petId}),
           )
           .timeout(Duration(seconds: 15));
+
+      print('🟢 Status code: ${response.statusCode}');
+      print('🟢 Response body: ${response.body}');
 
       final data = jsonDecode(response.body);
 
@@ -205,38 +220,49 @@ class PaymentService {
 
       final clientSecret = data['data']['clientSecret'];
 
-      // Inicializar Payment Sheet
+      print('🟢 Client secret recibido: ${clientSecret.substring(0, 20)}...');
+
+      // ✅ CRÍTICO: Para adopciones con PaymentIntent inicial
       await Stripe.instance.initPaymentSheet(
         paymentSheetParameters: SetupPaymentSheetParameters(
           merchantDisplayName: 'WooHeart',
-          paymentIntentClientSecret: clientSecret,
+          paymentIntentClientSecret:
+              clientSecret, // ✅ Tu backend usa PaymentIntent
           style: ThemeMode.light,
+          billingDetails: BillingDetails(
+            email: AuthService().email,
+            name: AuthService().username,
+          ),
         ),
       );
 
-      // Mostrar Payment Sheet
+      print('🟢 Payment sheet inicializado');
+
       await Stripe.instance.presentPaymentSheet();
+
+      print('🟢 Payment sheet completado exitosamente');
 
       return {
         'success': true,
         'message': '¡Adopción activada! Bienvenido a $planName 🎉',
       };
     } on StripeException catch (e) {
+      print('❌ StripeException: ${e.error.code} - ${e.error.localizedMessage}');
+
       if (e.error.code == FailureCode.Canceled) {
         return {'success': false, 'message': 'Adopción cancelada'};
       }
       return {
         'success': false,
-        'message': 'Error: ${e.error.localizedMessage ?? "Error desconocido"}',
+        'message':
+            'Error de Stripe: ${e.error.localizedMessage ?? "Error desconocido"}',
       };
     } catch (e) {
+      print('❌ Error general en adopción: $e');
       return {'success': false, 'message': 'Error de conexión: $e'};
     }
   }
 
-  // ============================================
-  // HELPER: Mostrar resultados
-  // ============================================
   static void showPaymentResult(
     BuildContext context,
     Map<String, dynamic> result,

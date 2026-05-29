@@ -17,7 +17,7 @@ dependencies:
   cached_network_image: ^3.3.1
   socket_io_client: ^2.0.3+1
   intl: ^0.18.0
-  flutter_stripe: ^11.1.0  # ← NUEVA LÍNEA AGREGADA
+  flutter_stripe: 11.0.0  # ← NUEVA LÍNEA AGREGADA
 
   firebase_core: ^2.24.2
   cloud_firestore: ^4.13.6
@@ -31,7 +31,7 @@ dev_dependencies:
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo3.png"
+  image_path: "assets/images/glh_logo.jpg"
   min_sdk_android: 21 
 
 flutter:
@@ -50,6 +50,7 @@ flutter:
     - assets/icons/compartir.png
     - assets/icons/compartir2.png
     - assets/icons/mapache.jpg
+    - assets/icons/logo.png
 
   fonts:
     - family: Quicksand

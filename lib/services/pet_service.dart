@@ -1,11 +1,12 @@
 // lib/services/pet_service.dart
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
 import '../data/model/pet_model.dart';
 
 class PetService {
-  static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
+  static const String baseUrl = 'https://wooheartc-back-zz5h.onrender.com/api/v1';
 
   // ✅ AHORA RETORNA List<PetModel> en lugar de Map
   static Future<List<PetModel>> fetchPets() async {
@@ -17,7 +18,7 @@ class PetService {
       };
 
       final response = await http.get(
-        Uri.parse('$baseUrl/pets'),
+        Uri.parse('$baseUrl/pets?limit=1000'),
         headers: headers,
       );
 
@@ -148,10 +149,12 @@ class PetService {
 
   static Future<Map<String, dynamic>> incrementShare(String petId) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/pets/$petId/share'),
-        headers: {'Content-Type': 'application/json'},
-      );
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/pets/$petId/share'),
+            headers: {'Content-Type': 'application/json'},
+          )
+          .timeout(Duration(seconds: 10)); // ✅ AGREGAR TIMEOUT
 
       final data = json.decode(response.body);
 
@@ -163,8 +166,167 @@ class PetService {
           'message': data['message'] ?? 'Error al registrar share',
         };
       }
+    } on TimeoutException {
+      // ✅ MANEJAR TIMEOUT
+      return {'success': false, 'message': 'Conexión lenta. Intenta de nuevo'};
     } catch (e) {
       return {'success': false, 'message': 'Error de conexión'};
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Obtener mascotas con like (estilo TikTok)
+  static Future<List<PetModel>> fetchLikedPets() async {
+    try {
+      final token = AuthService().token;
+
+      if (token == null) {
+        throw Exception('Debes iniciar sesión para ver tus likes');
+      }
+
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final response = await http
+          .get(Uri.parse('$baseUrl/pets/liked'), headers: headers)
+          .timeout(Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        final petsData = jsonData['data']['pets'] as List;
+
+        final pets = petsData
+            .map((petJson) => PetModel.fromJson(petJson))
+            .toList();
+
+        return pets;
+      } else if (response.statusCode == 401) {
+        throw Exception('Sesión expirada. Vuelve a iniciar sesión');
+      } else {
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } on TimeoutException {
+      throw Exception('Conexión lenta. Intenta de nuevo');
+    } catch (e) {
+      throw Exception('Error al cargar likes: $e');
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Obtener mascotas adoptadas (estilo TikTok)
+  static Future<List<PetModel>> fetchAdoptedPets() async {
+    try {
+      final token = AuthService().token;
+
+      if (token == null) {
+        throw Exception('Debes iniciar sesión para ver tus adopciones');
+      }
+
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      final response = await http
+          .get(Uri.parse('$baseUrl/pets/adopted'), headers: headers)
+          .timeout(Duration(seconds: 15));
+      // ✅ AGREGAR ESTOS PRINTS:
+      print('🔍 Status Code: ${response.statusCode}');
+      print('🔍 Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        // ✅ AGREGAR ESTE PRINT:
+        print('🔍 JSON Data: $jsonData');
+        print('🔍 Pets Array: ${jsonData['data']['pets']}');
+        final petsData = jsonData['data']['pets'] as List;
+
+        final pets = petsData.map((petJson) {
+          print('🔍 Parsing pet: ${petJson['name']}'); // ✅ AGREGAR
+          print('🔍 Has adoptionInfo: ${petJson['adoptionInfo']}'); // ✅ AGREGAR
+          return PetModel.fromJson(petJson);
+        }).toList();
+        return pets;
+        print('🔍 Total pets parsed: ${pets.length}');
+      } else if (response.statusCode == 401) {
+        throw Exception('Sesión expirada. Vuelve a iniciar sesión');
+      } else {
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } on TimeoutException {
+      throw Exception('Conexión lenta. Intenta de nuevo');
+    } catch (e) {
+      print('❌ Error en fetchAdoptedPets: $e');
+      throw Exception('Error al cargar adopciones: $e');
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN: Obtener mascotas apoyadas (últimas del refugio)
+  static Future<List<PetModel>> fetchSupportedPets() async {
+    try {
+      final token = AuthService().token;
+
+      if (token == null) {
+        throw Exception('Debes iniciar sesión para ver tus apoyos');
+      }
+
+      final headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      };
+
+      print('🔍 [APOYOS] Llamando al endpoint /pets/supported...');
+      print(
+        '🔍 [APOYOS] Token: ${token.substring(0, 20)}...',
+      ); // ✅ Mostrar inicio del token
+
+      final response = await http
+          .get(Uri.parse('$baseUrl/pets/supported'), headers: headers)
+          .timeout(Duration(seconds: 15));
+
+      print('🔍 [APOYOS] Status Code: ${response.statusCode}');
+      print('🔍 [APOYOS] Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+
+        print('🔍 [APOYOS] JSON Data: $jsonData');
+
+        // ✅ VERIFICAR SI HAY MENSAJE DE "NO HAY DONACIONES"
+        if (jsonData['data']['message'] != null) {
+          print(
+            '⚠️ [APOYOS] Mensaje del backend: ${jsonData['data']['message']}',
+          );
+          throw Exception(jsonData['data']['message']);
+        }
+
+        final petsData = jsonData['data']['pets'] as List;
+
+        print(
+          '🔍 [APOYOS] Pets Array: ${petsData.length} mascotas encontradas',
+        );
+
+        final pets = petsData.map((petJson) {
+          print('🔍 [APOYOS] Parsing pet: ${petJson['name']}');
+          return PetModel.fromJson(petJson);
+        }).toList();
+
+        print('✅ [APOYOS] Total pets parsed: ${pets.length}');
+        return pets;
+      } else if (response.statusCode == 401) {
+        print('❌ [APOYOS] Sesión expirada (401)');
+        throw Exception('Sesión expirada. Vuelve a iniciar sesión');
+      } else {
+        print('❌ [APOYOS] Error del servidor: ${response.statusCode}');
+        print('❌ [APOYOS] Body: ${response.body}');
+        throw Exception('Error del servidor: ${response.statusCode}');
+      }
+    } on TimeoutException {
+      print('⏱️ [APOYOS] Timeout después de 15 segundos');
+      throw Exception('Conexión lenta. Intenta de nuevo');
+    } catch (e) {
+      print('❌ [APOYOS] Error en fetchSupportedPets: $e');
+      rethrow; // ✅ Re-lanzar el error para que la UI lo capture
     }
   }
 }

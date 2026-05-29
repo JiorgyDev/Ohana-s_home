@@ -6,8 +6,8 @@ plugins {
 
 android {
     namespace = "com.example.ohanas_app"
-    compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    compileSdk = 36  // ✅ CAMBIAR de 34 a 35
+    ndkVersion = "27.0.12077973"  // ✅ CAMBIAR versión específica
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -21,7 +21,7 @@ android {
     defaultConfig {
         applicationId = "com.example.ohanas_app"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36 // ✅ CAMBIAR de 34 a 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -29,6 +29,11 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.getByName("debug")
+            // ✅ AGREGAR ProGuard rules
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
@@ -39,4 +44,7 @@ flutter {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.11.0")
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
 }

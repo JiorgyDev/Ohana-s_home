@@ -6,7 +6,7 @@ import './payment_models.dart';
 import '../../services/auth_service.dart';
 
 class PaymentHistoryService {
-  static const String baseUrl = 'https://wooheartc-back.onrender.com/api/v1';
+  static const String baseUrl = 'https://wooheartc-back-zz5h.onrender.com/api/v1';
 
   // Singleton
   static final PaymentHistoryService _instance =

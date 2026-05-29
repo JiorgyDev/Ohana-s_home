@@ -14,6 +14,7 @@ class PetModel {
   bool isLiked;
   final int adopcion;
   final int apoyo;
+  final PetAdoptionInfo? adoptionInfo; // ✅ NUEVO (renombrado)
 
   PetModel({
     required this.id,
@@ -30,6 +31,7 @@ class PetModel {
     required this.isLiked,
     required this.adopcion,
     required this.apoyo,
+    this.adoptionInfo, // ✅ NUEVO (renombrado)
   });
 
   factory PetModel.fromJson(Map<String, dynamic> json) {
@@ -48,6 +50,9 @@ class PetModel {
       isLiked: json['isLiked'] ?? false,
       adopcion: json['adopcion'] ?? 0,
       apoyo: json['apoyo'] ?? 0,
+      adoptionInfo: json['adoptionInfo'] != null
+          ? PetAdoptionInfo.fromJson(json['adoptionInfo'])
+          : null, // ✅ NUEVO (renombrado)
     );
   }
 
@@ -67,26 +72,103 @@ class PetModel {
       'isLiked': isLiked,
       'adopcion': adopcion,
       'apoyo': apoyo,
+      'adoptionInfo': adoptionInfo?.toJson(), // ✅ NUEVO
     };
   }
 
-  // Método para crear una copia con cambios
-  PetModel copyWith({int? likes, int? comments, int? shares, bool? isLiked}) {
+  PetModel copyWith({
+    String? id,
+    String? name,
+    String? description,
+    List<String>? imageUrls,
+    String? species,
+    String? breed,
+    int? age,
+    String? adoptionStatus,
+    int? likes,
+    int? comments,
+    int? shares,
+    bool? isLiked,
+    int? adopcion,
+    int? apoyo,
+    PetAdoptionInfo? adoptionInfo, // ✅ NUEVO (renombrado)
+  }) {
     return PetModel(
-      id: this.id,
-      name: this.name,
-      description: this.description,
-      imageUrls: this.imageUrls,
-      species: this.species,
-      breed: this.breed,
-      age: this.age,
-      adoptionStatus: this.adoptionStatus,
+      id: id ?? this.id,
+      name: name ?? this.name,
+      description: description ?? this.description,
+      imageUrls: imageUrls ?? this.imageUrls,
+      species: species ?? this.species,
+      breed: breed ?? this.breed,
+      age: age ?? this.age,
+      adoptionStatus: adoptionStatus ?? this.adoptionStatus,
       likes: likes ?? this.likes,
       comments: comments ?? this.comments,
       shares: shares ?? this.shares,
       isLiked: isLiked ?? this.isLiked,
-      adopcion: this.adopcion,
-      apoyo: this.apoyo,
+      adopcion: adopcion ?? this.adopcion,
+      apoyo: apoyo ?? this.apoyo,
+      adoptionInfo: adoptionInfo ?? this.adoptionInfo, // ✅ NUEVO (renombrado)
     );
   }
+}
+
+// ============================================
+// ✅ NUEVO: Clase para parsear adoptionInfo del pet
+// ============================================
+class PetAdoptionInfo {
+  final String plan; // 'guardian', 'protector', 'angel'
+  final double amount;
+  final String? startDate;
+  final String? endDate;
+  final String status; // 'active', 'cancelled'
+  final String? stripeSubscriptionId;
+
+  PetAdoptionInfo({
+    required this.plan,
+    required this.amount,
+    this.startDate,
+    this.endDate,
+    required this.status,
+    this.stripeSubscriptionId,
+  });
+
+  factory PetAdoptionInfo.fromJson(Map<String, dynamic> json) {
+    return PetAdoptionInfo(
+      plan: json['plan'] ?? 'guardian',
+      amount: (json['amount'] ?? 0).toDouble(),
+      startDate: json['startDate'],
+      endDate: json['endDate'],
+      status: json['status'] ?? 'active',
+      stripeSubscriptionId: json['stripeSubscriptionId'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'plan': plan,
+      'amount': amount,
+      'startDate': startDate,
+      'endDate': endDate,
+      'status': status,
+      'stripeSubscriptionId': stripeSubscriptionId,
+    };
+  }
+
+  // Helper para obtener el nombre del plan
+  String get planName {
+    switch (plan) {
+      case 'guardian':
+        return 'Plan Guardián';
+      case 'protector':
+        return 'Plan Protector';
+      case 'angel':
+        return 'Plan Ángel';
+      default:
+        return 'Plan $plan';
+    }
+  }
+
+  // Helper para saber si está activo
+  bool get isActive => status == 'active';
 }

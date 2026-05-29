@@ -15,9 +15,11 @@ class AuthService {
   static const String _keyEmail = 'email';
   static const String _keyUserId = 'userId';
   static const String _keyToken = 'token';
+  static const String _keyIsVerified = 'isVerified';
 
   // Variables en memoria
   bool _isLoggedIn = false;
+  bool _isVerified = false;
   String? _username;
   String? _email;
   String? _userId;
@@ -29,6 +31,7 @@ class AuthService {
   String? get email => _email;
   String? get userId => _userId;
   String? get token => _token;
+  bool get isVerified => _isVerified;
 
   /// Inicializar el servicio
   Future<void> init() async {
@@ -38,6 +41,7 @@ class AuthService {
     _email = prefs.getString(_keyEmail);
     _userId = prefs.getString(_keyUserId);
     _token = prefs.getString(_keyToken);
+    _isVerified = prefs.getBool(_keyIsVerified) ?? false;
   }
 
   /// Guardar sesión después del login/registro
@@ -46,6 +50,7 @@ class AuthService {
     required String email,
     String? userId,
     String? token,
+    bool isVerified = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
 
@@ -58,6 +63,8 @@ class AuthService {
     if (token != null) {
       await prefs.setString(_keyToken, token);
     }
+    await prefs.setBool(_keyIsVerified, isVerified); // ← AGREGAR
+    _isVerified = isVerified;
 
     // Actualizar en memoria
     _isLoggedIn = true;
@@ -76,6 +83,8 @@ class AuthService {
     await prefs.remove(_keyEmail);
     await prefs.remove(_keyUserId);
     await prefs.remove(_keyToken);
+    await prefs.remove(_keyIsVerified); // ← AGREGAR
+    _isVerified = false;
 
     // Limpiar en memoria
     _isLoggedIn = false;
@@ -119,7 +128,9 @@ class AuthService {
 
       final response = await http
           .patch(
-            Uri.parse('https://wooheartc-back.onrender.com/api/v1/users/me'),
+            Uri.parse(
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/users/me',
+            ),
             headers: {
               'Content-Type': 'application/json',
               'Authorization': 'Bearer $_token',
@@ -172,7 +183,7 @@ class AuthService {
       final response = await http
           .put(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/users/updateMyPassword',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/users/updateMyPassword',
             ),
             headers: {
               'Content-Type': 'application/json',
@@ -210,7 +221,7 @@ class AuthService {
       final response = await http
           .post(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/auth/send-verification-code',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/auth/send-verification-code',
             ),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email}),
@@ -238,7 +249,7 @@ class AuthService {
       final response = await http
           .post(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/auth/verify-email',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/auth/verify-email',
             ),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email, 'code': code}),
@@ -270,7 +281,7 @@ class AuthService {
       final response = await http
           .post(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/auth/forgot-password',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/auth/forgot-password',
             ),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({'email': email}),
@@ -302,7 +313,7 @@ class AuthService {
       final response = await http
           .post(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/auth/reset-password',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/auth/reset-password',
             ),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({

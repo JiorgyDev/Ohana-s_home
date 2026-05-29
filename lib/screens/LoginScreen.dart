@@ -115,7 +115,11 @@ class _LoginScreenState extends State<LoginScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFFFFC98), Color(0xFFFFF4D6), Color(0xFFFFE8B8)],
+            colors: [
+              Color(0xFF2A1617), // Marrón oscuro
+              Color(0xFF7C4C48), // Marrón medio
+              Color(0xFFEBCD81), // Dorado
+            ],
           ),
         ),
         child: SafeArea(
@@ -130,41 +134,41 @@ class _LoginScreenState extends State<LoginScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SizedBox(height: 40),
+                      SizedBox(height: 15),
 
                       // Logo y título
                       _buildHeader(),
 
-                      SizedBox(height: 50),
+                      SizedBox(height: 22),
 
                       // Campos del formulario
                       _buildEmailField(),
 
-                      SizedBox(height: 20),
+                      SizedBox(height: 25),
 
                       _buildPasswordField(),
 
-                      SizedBox(height: 16),
+                      SizedBox(height: 15),
 
                       // Recordarme y Olvidé contraseña
                       _buildRememberAndForgot(),
 
-                      SizedBox(height: 32),
+                      SizedBox(height: 20),
 
                       // Botón de login
                       _buildLoginButton(),
 
-                      SizedBox(height: 24),
+                      SizedBox(height: 20),
 
                       // Divider
                       _buildDivider(),
 
-                      SizedBox(height: 24),
+                      SizedBox(height: 20),
 
                       // Botón de registro
                       _buildRegisterButton(),
 
-                      SizedBox(height: 20),
+                      SizedBox(height: 10),
                     ],
                   ),
                 ),
@@ -182,43 +186,34 @@ class _LoginScreenState extends State<LoginScreen>
         // Logo circular animado
         Hero(
           tag: 'app_logo',
-          child: Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0xFFFE8043).withOpacity(0.3),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
+          child: ClipOval(
+            child: Image.asset(
+              'assets/icons/logo.png',
+              width: 130,
+              height: 130,
+              fit: BoxFit.cover,
             ),
-            child: Icon(Icons.pets, size: 60, color: Color(0xFFFE8043)),
           ),
         ),
-
-        SizedBox(height: 24),
+        SizedBox(height: 15),
 
         Text(
-          'WooHeart', // ← Nombre de la app, NO traducir
+          'Golden LionHeart', // ← Nombre de la app, NO traducir
           style: TextStyle(
-            fontSize: 36,
+            fontSize: 32,
             fontWeight: FontWeight.bold,
-            color: Color(0xFF2A1617),
+            color: Color.fromARGB(255, 253, 247, 247),
             letterSpacing: 1.2,
           ),
         ),
 
-        SizedBox(height: 8),
+        SizedBox(height: 15),
 
         TranslatedText(
-          'Bienvenido de vuelta',
+          'Creación digital con corazón de león',
           style: TextStyle(
             fontSize: 16,
-            color: Color(0xFF7C4C48),
+            color: Color.fromARGB(255, 253, 247, 247),
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -245,7 +240,7 @@ class _LoginScreenState extends State<LoginScreen>
         style: TextStyle(fontSize: 16),
         decoration: InputDecoration(
           labelText: _t('Correo Electrónico'),
-          labelStyle: TextStyle(color: Color(0xFF7C4C48)),
+          labelStyle: TextStyle(color: Color(0xFFFE8043)),
           prefixIcon: Icon(Icons.email_outlined, color: Color(0xFFFE8043)),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
@@ -287,12 +282,12 @@ class _LoginScreenState extends State<LoginScreen>
         style: TextStyle(fontSize: 16),
         decoration: InputDecoration(
           labelText: _t('Contraseña'),
-          labelStyle: TextStyle(color: Color(0xFF7C4C48)),
+          labelStyle: TextStyle(color: Color(0xFFFE8043)),
           prefixIcon: Icon(Icons.lock_outline, color: Color(0xFFFE8043)),
           suffixIcon: IconButton(
             icon: Icon(
               _obscurePassword ? Icons.visibility_off : Icons.visibility,
-              color: Color(0xFF7C4C48),
+              color: Color(0xFF2A1617),
             ),
             onPressed: () {
               setState(() {
@@ -364,7 +359,7 @@ class _LoginScreenState extends State<LoginScreen>
           child: TranslatedText(
             '¿Olvidaste tu contraseña?',
             style: TextStyle(
-              color: Color(0xFFB42C1C),
+              color: Color(0xFFFE8043),
               fontSize: 14,
               fontWeight: FontWeight.w600,
             ),
@@ -384,7 +379,7 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         boxShadow: [
           BoxShadow(
-            color: Color(0xFFFE8043).withOpacity(0.4),
+            color: Color(0xFFEBCD81).withOpacity(0.5),
             blurRadius: 15,
             offset: Offset(0, 8),
           ),
@@ -424,18 +419,28 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildDivider() {
     return Row(
       children: [
-        Expanded(child: Divider(color: Color(0xFF7C4C48).withOpacity(0.3))),
+        Expanded(
+          child: Divider(
+            color: Color(0xFFEBCD81).withOpacity(0.6),
+            thickness: 1.5,
+          ),
+        ),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: TranslatedText(
             'o',
             style: TextStyle(
-              color: Color(0xFF7C4C48),
+              color: Color(0xFF2A1617),
               fontWeight: FontWeight.w500,
             ),
           ),
         ),
-        Expanded(child: Divider(color: Color(0xFF7C4C48).withOpacity(0.3))),
+        Expanded(
+          child: Divider(
+            color: Color(0xFFEBCD81).withOpacity(0.6),
+            thickness: 1.5,
+          ),
+        ),
       ],
     );
   }
@@ -445,7 +450,7 @@ class _LoginScreenState extends State<LoginScreen>
       height: 56,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Color(0xFFFE8043), width: 2),
+        border: Border.all(color: Color(0xFFEBCD81), width: 2.5),
         color: Colors.white,
       ),
       child: TextButton(
@@ -462,7 +467,7 @@ class _LoginScreenState extends State<LoginScreen>
           style: TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.bold,
-            color: Color(0xFFB42C1C),
+            color: Color(0xFF2A1617),
             letterSpacing: 0.5,
           ),
         ),
@@ -484,9 +489,7 @@ class _LoginScreenState extends State<LoginScreen>
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-
       if (result['success']) {
-        // Guardar sesión
         await AuthService().login(
           username: result['user']['name'] ?? 'Usuario',
           email: result['user']['email'],
@@ -499,20 +502,18 @@ class _LoginScreenState extends State<LoginScreen>
             SnackBar(
               content: Row(
                 children: [
-                  Icon(Icons.check_circle, color: Colors.white),
+                  Icon(Icons.check_circle, color: Color(0xFF2A1617)),
                   SizedBox(width: 12),
                   TranslatedText(_t('¡Bienvenido de vuelta! 🐾')),
                 ],
               ),
-              backgroundColor: Color(0xFF4CAF50),
+              backgroundColor: Color(0xFFEBCD81),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
           );
-
-          // Navegar al home
           Navigator.of(context).pushReplacementNamed('/home');
         }
       } else {
@@ -530,7 +531,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ],
               ),
-              backgroundColor: Color(0xFFB42C1C),
+              backgroundColor: Color(0xFFFE8043),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -550,7 +551,7 @@ class _LoginScreenState extends State<LoginScreen>
                 Expanded(child: Text('${_t("Error de conexión")}: $e')),
               ],
             ),
-            backgroundColor: Color(0xFFB42C1C),
+            backgroundColor: Color(0xFF7C4C48),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
@@ -585,7 +586,7 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             title: Row(
               children: [
-                Icon(Icons.lock_reset, color: Color(0xFFFE8043)),
+                Icon(Icons.lock_reset, color: Color(0xFFEBCD81)),
                 SizedBox(width: 8),
                 Expanded(
                   child: TranslatedText(
@@ -616,7 +617,7 @@ class _LoginScreenState extends State<LoginScreen>
                         labelText: _t('Correo Electrónico'),
                         prefixIcon: Icon(
                           Icons.email_outlined,
-                          color: Color(0xFFFE8043),
+                          color: Color(0xFFEBCD81),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -624,8 +625,8 @@ class _LoginScreenState extends State<LoginScreen>
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: Color(0xFFFE8043),
-                            width: 2,
+                            color: Color(0xFFEBCD81),
+                            width: 2.5,
                           ),
                         ),
                       ),
@@ -646,7 +647,7 @@ class _LoginScreenState extends State<LoginScreen>
                         labelText: _t('Código de verificación'),
                         prefixIcon: Icon(
                           Icons.security,
-                          color: Color(0xFFFE8043),
+                          color: Color(0xFFEBCD81),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -670,7 +671,7 @@ class _LoginScreenState extends State<LoginScreen>
                         labelText: _t('Nueva Contraseña'),
                         prefixIcon: Icon(
                           Icons.lock_outline,
-                          color: Color(0xFFFE8043),
+                          color: Color(0xFFEBCD81),
                         ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -732,7 +733,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 content: TranslatedText(
                                   'Código enviado a tu correo, revisa tu bandeja de spam',
                                 ),
-                                backgroundColor: Color(0xFF4CAF50),
+                                backgroundColor: Color(0xFFEBCD81),
                               ),
                             );
                           } else {
@@ -752,7 +753,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 content: TranslatedText(
                                   'Por favor completa todos los campos',
                                 ),
-                                backgroundColor: Color(0xFFB42C1C),
+                                backgroundColor: Color(0xFFFE8043),
                               ),
                             );
                             return;
@@ -764,7 +765,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 content: TranslatedText(
                                   'La contraseña debe tener al menos 6 caracteres',
                                 ),
-                                backgroundColor: Color(0xFFB42C1C),
+                                backgroundColor: Color(0xFFFE8043),
                               ),
                             );
                             return;
@@ -787,8 +788,9 @@ class _LoginScreenState extends State<LoginScreen>
                               SnackBar(
                                 content: TranslatedText(
                                   'Contraseña actualizada. Inicia sesión con tu nueva contraseña',
+                                  style: TextStyle(color: Color(0xFF2A1617)),
                                 ),
-                                backgroundColor: Color(0xFF4CAF50),
+                                backgroundColor: Color(0xFFEBCD81),
                                 duration: Duration(seconds: 4),
                               ),
                             );
@@ -796,14 +798,14 @@ class _LoginScreenState extends State<LoginScreen>
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(result['message']),
-                                backgroundColor: Color(0xFFB42C1C),
+                                backgroundColor: Color(0xFF7C4C48),
                               ),
                             );
                           }
                         }
                       },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Color(0xFFFE8043),
+                  backgroundColor: Color(0xFFEBCD81),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -820,7 +822,8 @@ class _LoginScreenState extends State<LoginScreen>
                     : TranslatedText(
                         isCodeSent ? 'Restablecer' : 'Enviar código',
                         style: TextStyle(
-                          color: const Color.fromARGB(255, 255, 255, 255),
+                          color: Color(0xFF2A1617),
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
               ),

@@ -6,11 +6,16 @@ import '../widgets/translated_text.dart';
 class EmailVerificationScreen extends StatefulWidget {
   final String email;
   final String username;
+  final String userId;  // ← nuevo
+  final String token; 
+  
 
   const EmailVerificationScreen({
     Key? key,
     required this.email,
     required this.username,
+    required this.userId,  // ← nuevo
+    required this.token,
   }) : super(key: key);
 
   @override
@@ -96,13 +101,20 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
     setState(() => _isLoading = false);
 
-    if (resultado['success']) {
-      _mostrarMensaje('¡Email verificado exitosamente! 🎉');
-      await Future.delayed(Duration(seconds: 1));
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } else {
+    // ✅ DESPUÉS — recién acá guardamos la sesión
+if (resultado['success']) {
+  await AuthService().login(
+    username: widget.username,
+    email: widget.email,
+    userId: widget.userId,
+    token: widget.token,
+  );
+  _mostrarMensaje('¡Email verificado exitosamente! 🎉');
+  await Future.delayed(Duration(seconds: 1));
+  if (mounted) {
+    Navigator.pushReplacementNamed(context, '/home');
+  }
+} else {
       _mostrarMensaje(resultado['message'], error: true);
       // Limpiar campos en error
       for (var controller in _controllers) {

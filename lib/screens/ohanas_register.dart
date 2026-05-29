@@ -72,7 +72,7 @@ class _OhanasRegisterState extends State<OhanasRegister> {
       final response = await http
           .post(
             Uri.parse(
-              'https://wooheartc-back.onrender.com/api/v1/auth/register',
+              'https://wooheartc-back-zz5h.onrender.com/api/v1/auth/register',
             ),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(datos),
@@ -85,14 +85,13 @@ class _OhanasRegisterState extends State<OhanasRegister> {
       if (response.statusCode == 200 || response.statusCode == 201) {
         final respuesta = jsonDecode(response.body);
 
-        await AuthService().login(
-          username: _nombreController.text.trim(),
-          email: _correoController.text.trim(),
-          userId: respuesta['data']?['user']?['_id']?.toString(),
-          token: respuesta['token'],
-        );
-
-        _mostrarMensaje('¡Registro exitoso! Verifica tu email 📧');
+        // Caso 1: usuario existía pero no había verificado
+        if (respuesta['status'] == 'pending_verification') {
+          _mostrarMensaje('Te reenviamos el código a tu email 📧');
+        } else {
+          // Caso 2: registro nuevo exitoso
+          _mostrarMensaje('¡Registro exitoso! Verifica tu email 📧');
+        }
 
         await Future.delayed(Duration(milliseconds: 500));
         if (mounted) {
@@ -102,6 +101,8 @@ class _OhanasRegisterState extends State<OhanasRegister> {
               builder: (context) => EmailVerificationScreen(
                 email: _correoController.text.trim(),
                 username: _nombreController.text.trim(),
+                userId: respuesta['data']?['user']?['_id']?.toString() ?? '',
+                token: respuesta['token'] ?? '',
               ),
             ),
           );

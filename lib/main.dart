@@ -12,8 +12,14 @@ import 'dart:math' as math;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializar Stripe
-  Stripe.publishableKey = StripeConfig.publishableKey;
+  // ✅ Inicializar Stripe con manejo de errores
+  try {
+    Stripe.publishableKey = StripeConfig.publishableKey;
+    print('✅ Stripe inicializado correctamente');
+  } catch (e) {
+    print('❌ Error inicializando Stripe: $e');
+    // Continuar sin Stripe si falla
+  }
 
   await AuthService().init();
   await TranslationService().loadLanguage();
@@ -29,6 +35,7 @@ class MainApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        useMaterial3: false,
         fontFamily: 'Quicksand',
         // ✅ Configurar TextTheme completo
         textTheme: const TextTheme(
@@ -240,27 +247,13 @@ class _SplashScreenState extends State<SplashScreen>
                             ),
                           ],
                         ),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            AnimatedBuilder(
-                              animation: _rotateAnimation,
-                              builder: (context, child) {
-                                return Transform.rotate(
-                                  angle: _rotateAnimation.value,
-                                  child: CustomPaint(
-                                    size: const Size(150, 150),
-                                    painter: CirclePainter(),
-                                  ),
-                                );
-                              },
-                            ),
-                            const Icon(
-                              Icons.pets,
-                              size: 80,
-                              color: Color(0xFFFE8043),
-                            ),
-                          ],
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/icons/logo.png',
+                            width: 130,
+                            height: 130,
+                            fit: BoxFit.cover,
+                          ),
                         ),
                       ),
                     ),
@@ -271,7 +264,7 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       children: [
                         Text(
-                          "WooHeart",
+                          "Golden Lionheart",
                           style: TextStyle(
                             fontSize: 38,
                             fontWeight: FontWeight.bold,
@@ -288,7 +281,7 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          "🐾 Amor que conecta 💝",
+                          "🐾 Tu legado digital, nuestra audacia 💝",
                           style: TextStyle(
                             fontSize: 14,
                             color: const Color(0xFFFE8043).withOpacity(0.8),
